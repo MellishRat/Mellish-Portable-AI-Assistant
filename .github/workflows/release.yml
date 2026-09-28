@@ -1,0 +1,47 @@
+name: Build bootstrap release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse installer and validate manifest
+        shell: powershell
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD\installer\Install-PortableAssistant.ps1", [ref]$null, [ref]$errors
+          )
+          if ($errors) { $errors | Format-List; exit 1 }
+          Get-Content installer\manifest.json -Raw | ConvertFrom-Json | Out-Null
+
+      - name: Build small bootstrap ZIP
+        shell: powershell
+        run: .\build_release.ps1 -Version "${{ github.ref_name }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mellish-Portable-AI-Assistant-Bootstrap
+          path: |
+            dist/Mellish-Portable-AI-Assistant-Bootstrap.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/Mellish-Portable-AI-Assistant-Bootstrap.zip
+            dist/SHA256SUMS.txt

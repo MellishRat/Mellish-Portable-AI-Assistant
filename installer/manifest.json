@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.1.0",
+  "portablePort": 11437,
+  "python": {
+    "version": "3.11.9",
+    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe",
+    "md5": "e8dcd502e34932eebcaf1be056d5cbcd",
+    "requiredSigner": "Python Software Foundation"
+  },
+  "ollama": {
+    "version": "0.34.4",
+    "url": "https://github.com/ollama/ollama/releases/download/v0.34.4/ollama-windows-amd64.zip",
+    "checksumUrl": "https://github.com/ollama/ollama/releases/download/v0.34.4/sha256sum.txt",
+    "archiveName": "ollama-windows-amd64.zip"
+  },
+  "models": [
+    {
+      "id": "small-uncensored",
+      "name": "Qwen 3 1.7B Abliterated — low-spec unrestricted",
+      "ollama": "huihui_ai/qwen3-abliterated:1.7b",
+      "sizeGB": 1.1,
+      "kind": "chat",
+      "uncensoredClaim": true,
+      "description": "Recommended fallback for older PCs and integrated graphics."
+    },
+    {
+      "id": "bonsai-small",
+      "name": "Bonsai 1.7B (about 2B) — ultra-light experimental",
+      "ollama": "hf.co/prism-ml/Bonsai-1.7B-gguf:Q1_0",
+      "sizeGB": 0.25,
+      "kind": "chat",
+      "uncensoredClaim": false,
+      "description": "Very small 1-bit model for experimentation; not an abliterated model."
+    },
+    {
+      "id": "general",
+      "name": "Qwen 3.5 9B Abliterated — general chat",
+      "ollama": "lukey03/qwen3.5-9b-abliterated:latest",
+      "sizeGB": 5.6,
+      "kind": "chat",
+      "uncensoredClaim": true,
+      "description": "Primary unrestricted general assistant for modern gaming PCs."
+    },
+    {
+      "id": "vision",
+      "name": "Qwen 3.5 9B Abliterated Vision — image analysis",
+      "ollama": "lukey03/qwen3.5-9b-abliterated-vision:latest",
+      "sizeGB": 6.6,
+      "kind": "vision",
+      "uncensoredClaim": true,
+      "description": "Analyses screenshots and photos; recommended with at least 8 GB VRAM."
+    },
+    {
+      "id": "coder",
+      "name": "Qwen 2.5 Coder 14B Abliterated — programming",
+      "ollama": "dagbs/qwen2.5-coder-14b-instruct-abliterated:latest",
+      "sizeGB": 9.0,
+      "kind": "chat",
+      "uncensoredClaim": true,
+      "description": "Coding and game-development specialist; best with 12 GB VRAM or more."
+    },
+    {
+      "id": "creative",
+      "name": "Mistral Nemo 12B HERETIC — creative writing",
+      "ollama": "hf.co/mradermacher/Mistral-Nemo-Inst-2407-12B-Thinking-Uncensored-HERETIC-HI-Claude-Opus-GGUF:Q4_K_M",
+      "sizeGB": 7.5,
+      "kind": "chat",
+      "uncensoredClaim": true,
+      "description": "Unrestricted creative-writing and role-play profile."
+    },
+    {
+      "id": "ocr",
+      "name": "GLM-OCR — document and screenshot transcription",
+      "ollama": "glm-ocr:latest",
+      "sizeGB": 2.2,
+      "kind": "vision",
+      "uncensoredClaim": false,
+      "description": "Reads documents, forms, UI screenshots and tables."
+    },
+    {
+      "id": "knowledge",
+      "name": "BGE-M3 — local project knowledge search",
+      "ollama": "bge-m3:latest",
+      "sizeGB": 1.2,
+      "kind": "embedding",
+      "uncensoredClaim": false,
+      "description": "Indexes source code and notes for local retrieval."
+    },
+    {
+      "id": "bonsai-27b",
+      "name": "Bonsai 27B Q1 — experimental reasoning/phone candidate",
+      "ollama": "codecraftersllc/bonsai-27b:q1_0",
+      "sizeGB": 4.7,
+      "kind": "chat",
+      "uncensoredClaim": false,
+      "description": "Optional 1-bit 27B experiment with thinking, tools and vision; not abliterated."
+    }
+  ]
+}

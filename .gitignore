@@ -1,0 +1,24 @@
+# Generated release archives and installer downloads
+dist/
+downloads/
+*.partial
+*.log
+
+# Installed runtime state must never enter source control
+runtime/
+ollama/
+models/
+cache/
+voice/
+knowledge/
+chats/
+config/
+__pycache__/
+*.pyc
+
+# Local editor and OS files
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
