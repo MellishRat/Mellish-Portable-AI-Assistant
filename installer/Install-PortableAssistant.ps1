@@ -6,7 +6,8 @@ param(
     [string[]]$ModelIds,
     [switch]$WithVoice,
     [switch]$NoShortcuts,
-    [switch]$GuiSmokeTest
+    [switch]$GuiSmokeTest,
+    [switch]$RuntimeSmokeTest
 )
 
 Set-StrictMode -Version Latest
@@ -18,10 +19,42 @@ $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptRoot
 $PayloadRoot = Join-Path $RepoRoot 'payload'
 $ManifestPath = Join-Path $ScriptRoot 'manifest.json'
+$SelectionStatePath = Join-Path $ScriptRoot 'last-install-path.txt'
 $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $script:LogControl = $null
 $script:ProgressBar = $null
 $script:StatusLabel = $null
+
+function Get-SavedInstallPath {
+    if (-not (Test-Path -LiteralPath $SelectionStatePath)) { return $null }
+    try {
+        $saved = (Get-Content -LiteralPath $SelectionStatePath -Raw -Encoding UTF8).Trim()
+        if ([string]::IsNullOrWhiteSpace($saved)) { return $null }
+        return [IO.Path]::GetFullPath($saved)
+    } catch {
+        return $null
+    }
+}
+
+function Save-InstallPath {
+    param([string]$Path)
+    Set-Content -LiteralPath $SelectionStatePath -Value $Path -Encoding UTF8
+}
+
+function Set-PortableProcessEnvironment {
+    param([string]$Root)
+    $env:PYTHONNOUSERSITE = '1'
+    $env:PIP_USER = 'false'
+    $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
+    $env:PIP_CACHE_DIR = Join-Path $Root 'cache\pip'
+    $env:HF_HOME = Join-Path $Root 'cache\huggingface'
+    $env:HUGGINGFACE_HUB_CACHE = Join-Path $Root 'cache\huggingface\hub'
+    $env:TRANSFORMERS_CACHE = Join-Path $Root 'cache\huggingface\transformers'
+    $env:XDG_CACHE_HOME = Join-Path $Root 'cache'
+    $env:TORCH_HOME = Join-Path $Root 'cache\torch'
+    Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+}
 
 function Add-Log {
     param([string]$Message)
@@ -46,7 +79,7 @@ function Set-InstallerStatus {
             $script:ProgressBar.Value = [Math]::Max(0, [Math]::Min(100, $Percent))
         }
     }
-    if (-not $NoGui) { [System.Windows.Forms.Application]::DoEvents() }
+    if (-not $NoGui -and -not $RuntimeSmokeTest) { [System.Windows.Forms.Application]::DoEvents() }
 }
 
 function Get-HardwareInfo {
@@ -161,10 +194,8 @@ function Quote-ProcessArgument {
     return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
 }
 
-function Invoke-ProcessChecked {
-    param([string]$FilePath, [string[]]$Arguments, [string]$Description, [string]$WorkingDirectory)
-    Add-Log $Description
-    Set-InstallerStatus $Description -1
+function Invoke-ProcessCapture {
+    param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory)
     $psi = [Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $FilePath
     $psi.Arguments = (($Arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ')
@@ -175,46 +206,150 @@ function Invoke-ProcessChecked {
     $psi.RedirectStandardError = $true
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
-    if (-not $process.Start()) { throw "Could not start $Description" }
+    try {
+        if (-not $process.Start()) { throw 'Process.Start returned false.' }
+    } catch {
+        return [pscustomobject]@{ ExitCode = -1; StdOut = ''; StdErr = $_.Exception.Message; Command = "$FilePath $($psi.Arguments)" }
+    }
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
     while (-not $process.HasExited) {
-        if (-not $NoGui) { [System.Windows.Forms.Application]::DoEvents() }
+        if (-not $NoGui -and -not $RuntimeSmokeTest) { [System.Windows.Forms.Application]::DoEvents() }
         Start-Sleep -Milliseconds 200
     }
     $stdout = $stdoutTask.Result
     $stderr = $stderrTask.Result
-    if ($process.ExitCode -ne 0) {
-        throw "$Description failed with exit code $($process.ExitCode).`n$stderr`n$stdout"
+    return [pscustomobject]@{ ExitCode = $process.ExitCode; StdOut = $stdout; StdErr = $stderr; Command = "$FilePath $($psi.Arguments)" }
+}
+
+function Invoke-ProcessChecked {
+    param([string]$FilePath, [string[]]$Arguments, [string]$Description, [string]$WorkingDirectory)
+    Add-Log $Description
+    Set-InstallerStatus $Description -1
+    $result = Invoke-ProcessCapture $FilePath $Arguments $WorkingDirectory
+    if ($result.ExitCode -ne 0) {
+        throw "$Description failed with exit code $($result.ExitCode).`n$($result.StdErr)`n$($result.StdOut)"
     }
-    if ($stdout.Trim()) { Add-Log (($stdout.Trim() -split "`r?`n" | Select-Object -Last 1) -join '') }
+    if ($result.StdOut.Trim()) { Add-Log (($result.StdOut.Trim() -split "`r?`n" | Select-Object -Last 1) -join '') }
+}
+
+function Test-PythonRuntime {
+    param([string]$PythonExe)
+    if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
+        return [pscustomobject]@{ Valid = $false; ExitCode = -1; StdOut = ''; StdErr = "Executable does not exist: $PythonExe" }
+    }
+    $code = 'import sys, pip, tkinter; print(sys.executable)'
+    $result = Invoke-ProcessCapture $PythonExe @('-c', $code) (Split-Path -Parent $PythonExe)
+    return [pscustomobject]@{
+        Valid = ($result.ExitCode -eq 0)
+        ExitCode = $result.ExitCode
+        StdOut = $result.StdOut
+        StdErr = $result.StdErr
+    }
+}
+
+function Get-ExtractionLayout {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return '<extraction directory does not exist>' }
+    $items = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue | Select-Object -First 80)
+    if (-not $items) { return '<extraction directory is empty>' }
+    return (($items | ForEach-Object { $_.FullName.Substring($Path.Length).TrimStart('\') }) -join "`n")
+}
+
+function New-PythonRuntimeFailure {
+    param([string]$PythonExe, [string]$LayoutRoot, $Verification)
+    $layout = Get-ExtractionLayout $LayoutRoot
+    return @"
+Standalone Python verification failed.
+Executable: $PythonExe
+Archive URL: $($Manifest.python.url)
+Expected SHA-256: $($Manifest.python.sha256)
+Extraction layout (first 80 entries):
+$layout
+Exit code: $($Verification.ExitCode)
+Standard output:
+$($Verification.StdOut)
+Standard error:
+$($Verification.StdErr)
+"@
 }
 
 function Install-PythonRuntime {
     param([string]$Root, [string]$Downloads)
-    $pythonDir = Join-Path $Root 'runtime\python'
+    $runtimeDir = Join-Path $Root 'runtime'
+    $pythonDir = Join-Path $runtimeDir 'python'
     $pythonExe = Join-Path $pythonDir 'python.exe'
-    if (Test-Path -LiteralPath $pythonExe) {
-        Add-Log 'Portable Python is already installed.'
+    $existing = Test-PythonRuntime $pythonExe
+    if ($existing.Valid) {
+        Add-Log "Reusing verified standalone Python: $pythonExe"
         return $pythonExe
     }
-    $installer = Join-Path $Downloads "python-$($Manifest.python.version)-amd64.exe"
-    Download-VerifiedFile $Manifest.python.url $installer "Python $($Manifest.python.version)"
-    $md5 = (Get-FileHash -LiteralPath $installer -Algorithm MD5).Hash.ToLowerInvariant()
-    if ($md5 -ne $Manifest.python.md5.ToLowerInvariant()) { throw 'Python installer checksum did not match python.org.' }
-    $signature = Get-AuthenticodeSignature -LiteralPath $installer
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike "*$($Manifest.python.requiredSigner)*") {
-        throw "Python installer signature validation failed: $($signature.Status)"
+    if (Test-Path -LiteralPath $pythonDir) {
+        Add-Log "Existing Python runtime is incomplete and will be replaced: $($existing.StdErr)"
     }
-    New-Item -ItemType Directory -Force -Path $pythonDir | Out-Null
-    $args = @(
-        '/quiet', 'InstallAllUsers=0', "TargetDir=$pythonDir", 'AssociateFiles=0', 'CompileAll=0',
-        'Include_doc=0', 'Include_launcher=0', 'Include_pip=1', 'Include_test=0', 'Include_tcltk=1',
-        'Include_tools=1', 'PrependPath=0', 'Shortcuts=0'
-    )
-    Invoke-ProcessChecked $installer $args 'Installing the contained Python runtime...' $Downloads
-    if (-not (Test-Path -LiteralPath $pythonExe)) { throw 'Python installation completed but python.exe is missing.' }
-    return $pythonExe
+
+    New-Item -ItemType Directory -Force -Path $runtimeDir, $Downloads | Out-Null
+    $archive = Join-Path $Downloads $Manifest.python.archiveName
+    $expectedHash = $Manifest.python.sha256.ToLowerInvariant()
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        if (Test-Path -LiteralPath $archive) {
+            $currentHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($currentHash -ne $expectedHash) {
+                Add-Log "Discarding incomplete or invalid standalone Python archive (SHA-256 $currentHash)."
+                Remove-Item -LiteralPath $archive -Force
+            }
+        }
+        if (-not (Test-Path -LiteralPath $archive)) {
+            Download-VerifiedFile $Manifest.python.url $archive "standalone Python $($Manifest.python.version)"
+        }
+        $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -eq $expectedHash) { break }
+        Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+        if ($attempt -eq 2) {
+            throw "Standalone Python archive SHA-256 mismatch after retry. URL: $($Manifest.python.url) Expected: $expectedHash Actual: $actualHash"
+        }
+    }
+
+    $stageRoot = Join-Path $runtimeDir ('.python-stage-' + [Guid]::NewGuid().ToString('N'))
+    $backupDir = Join-Path $runtimeDir ('.python-backup-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $stageRoot | Out-Null
+    try {
+        $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+        if (-not (Test-Path -LiteralPath $tarExe)) { throw "Windows tar.exe is required but was not found at $tarExe" }
+        $extract = Invoke-ProcessCapture $tarExe @('-xzf', $archive, '-C', $stageRoot) $Downloads
+        if ($extract.ExitCode -ne 0) {
+            $failed = [pscustomobject]@{ ExitCode = $extract.ExitCode; StdOut = $extract.StdOut; StdErr = $extract.StdErr }
+            throw (New-PythonRuntimeFailure '<not extracted>' $stageRoot $failed)
+        }
+
+        $candidate = @(Get-ChildItem -LiteralPath $stageRoot -Filter python.exe -Recurse -File | Where-Object {
+            (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'Lib')) -and
+            (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'tcl'))
+        }) | Select-Object -First 1
+        if (-not $candidate) {
+            $failed = [pscustomobject]@{ ExitCode = -1; StdOut = ''; StdErr = 'No python.exe with adjacent Lib and tcl directories was found.' }
+            throw (New-PythonRuntimeFailure '<not found>' $stageRoot $failed)
+        }
+        $candidateDir = $candidate.DirectoryName
+        $candidateCheck = Test-PythonRuntime $candidate.FullName
+        if (-not $candidateCheck.Valid) { throw (New-PythonRuntimeFailure $candidate.FullName $stageRoot $candidateCheck) }
+
+        if (Test-Path -LiteralPath $pythonDir) { Move-Item -LiteralPath $pythonDir -Destination $backupDir }
+        try {
+            Move-Item -LiteralPath $candidateDir -Destination $pythonDir
+            $installedCheck = Test-PythonRuntime $pythonExe
+            if (-not $installedCheck.Valid) { throw (New-PythonRuntimeFailure $pythonExe $pythonDir $installedCheck) }
+        } catch {
+            if (Test-Path -LiteralPath $pythonDir) { Remove-Item -LiteralPath $pythonDir -Recurse -Force }
+            if (Test-Path -LiteralPath $backupDir) { Move-Item -LiteralPath $backupDir -Destination $pythonDir }
+            throw
+        }
+        if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }
+        Add-Log "Standalone Python verified: $($installedCheck.StdOut.Trim())"
+        return $pythonExe
+    } finally {
+        if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Install-OllamaRuntime {
@@ -392,6 +527,10 @@ function Add-Shortcuts {
 function Invoke-Installation {
     param([string]$Target, [object[]]$SelectedModels, [bool]$Voice, [bool]$Shortcuts, $Hardware)
     $Target = Test-InstallerInputs $Target $SelectedModels
+    if (-not $DryRun) {
+        Save-InstallPath $Target
+        Set-PortableProcessEnvironment $Target
+    }
     $requiredGB = 3.5 + (($SelectedModels | Measure-Object sizeGB -Sum).Sum) + $(if ($Voice) { 1.2 } else { 0.2 })
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($Target))
     if (($drive.AvailableFreeSpace / 1GB) -lt ($requiredGB + 3)) {
@@ -436,8 +575,23 @@ function Invoke-Installation {
 $hardware = Get-HardwareInfo
 $recommendedIds = @(Get-Recommendation $hardware)
 
+if ($RuntimeSmokeTest) {
+    if (-not $InstallPath) { throw '-RuntimeSmokeTest requires -InstallPath.' }
+    $runtimeRoot = [IO.Path]::GetFullPath($InstallPath).TrimEnd('\')
+    if ($runtimeRoot -eq [IO.Path]::GetPathRoot($runtimeRoot)) { throw 'Runtime smoke-test path cannot be a drive root.' }
+    $runtimeDownloads = Join-Path $runtimeRoot 'downloads'
+    New-Item -ItemType Directory -Force -Path $runtimeDownloads | Out-Null
+    Set-PortableProcessEnvironment $runtimeRoot
+    $verifiedPython = Install-PythonRuntime $runtimeRoot $runtimeDownloads
+    Write-Output "RUNTIME_SMOKE_TEST_OK=$verifiedPython"
+    exit 0
+}
+
 if ($NoGui) {
-    if (-not $InstallPath) { $InstallPath = Join-Path $env:LOCALAPPDATA 'Mellish Portable AI Assistant' }
+    if (-not $InstallPath) {
+        $InstallPath = Get-SavedInstallPath
+        if (-not $InstallPath) { $InstallPath = Join-Path $env:LOCALAPPDATA 'Mellish Portable AI Assistant' }
+    }
     if (-not $ModelIds -or $ModelIds.Count -eq 0) { $ModelIds = $recommendedIds }
     $selected = @($Manifest.models | Where-Object { $ModelIds -contains $_.id })
     Invoke-Installation $InstallPath $selected ([bool]$WithVoice) (-not $NoShortcuts) $hardware
@@ -483,7 +637,8 @@ $folderText = New-Object System.Windows.Forms.TextBox
 $folderText.Location = New-Object Drawing.Point(20, 153)
 $folderText.Size = New-Object Drawing.Size(690, 25)
 $folderText.Anchor = 'Top,Left,Right'
-$folderText.Text = if ($InstallPath) { $InstallPath } else { Join-Path $env:LOCALAPPDATA 'Mellish Portable AI Assistant' }
+$savedInstallPath = Get-SavedInstallPath
+$folderText.Text = if ($InstallPath) { $InstallPath } elseif ($savedInstallPath) { $savedInstallPath } else { Join-Path $env:LOCALAPPDATA 'Mellish Portable AI Assistant' }
 $form.Controls.Add($folderText)
 
 $browse = New-Object System.Windows.Forms.Button

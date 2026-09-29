@@ -26,7 +26,9 @@ dependencies or add another model. Interrupted Ollama model downloads resume.
   1.7B option for older computers.
 - The 9B general/vision, 14B coding, 12B creative, OCR and BGE-M3 models used by
   the full assistant, plus optional Bonsai 27B.
-- A contained Python 3.11 runtime with Tkinter and only the selected packages.
+- A pinned Python 3.11 `python-build-standalone` install-only runtime, extracted
+  directly under the selected folder with pip, Tkinter/Tcl and the standard
+  library included.
 - A pinned standalone Ollama runtime whose official SHA-256 checksum is verified.
 - Optional faster-whisper speech recognition and Kokoro text-to-speech.
 - Dedicated loopback port `11437`, avoiding conflicts with a normal Ollama app.
@@ -45,11 +47,35 @@ dependencies or add another model. Interrupted Ollama model downloads resume.
   every response or an endorsement of model output.
 - Bonsai 1.7B and Bonsai 27B are not abliterated. They are optional experiments.
 
+## Standalone Python runtime
+
+The bootstrap does not run the normal python.org Windows installer. It pins the
+Windows x86-64 `python-build-standalone` CPython 3.11.9 install-only archive from
+release `20240814` and verifies its SHA-256 before extraction. The archive is
+normalized so the interpreter is always `runtime\python\python.exe`, then the
+installer immediately verifies `sys`, `pip` and `tkinter` with that exact file.
+
+Dependencies are installed only through `runtime\python\python.exe -m pip`.
+Mellish does not request PATH changes, file associations, the Python launcher,
+Windows Installer registration or an existing system Python. An incomplete
+runtime is replaced using a staged extraction and rollback backup; a verified
+runtime is reused on repair runs.
+
+`python-build-standalone` is maintained by Astral and packages CPython plus
+third-party components. The extracted distribution includes its license files
+and component licensing metadata. Review those notices and the upstream
+project before redistribution:
+https://github.com/astral-sh/python-build-standalone
+
+The last selected destination is stored beside the extracted bootstrap so a
+retry does not silently return to `%LOCALAPPDATA%`. The installed repair batch
+always supplies its own containing directory explicitly.
+
 ## Security and privacy
 
-Downloads use HTTPS. The pinned Python installer must have a valid Python
-Software Foundation Authenticode signature. The Ollama ZIP is checked against
-the SHA-256 file published with its pinned GitHub release. Model weights are
+Downloads use HTTPS. The pinned standalone Python archive is checked against
+the SHA-256 recorded in the manifest. The Ollama ZIP is checked against the
+SHA-256 file published with its pinned GitHub release. Model weights are
 downloaded by Ollama from their listed publishers and are not redistributed in
 this repository.
 
@@ -63,7 +89,13 @@ are excluded by `.gitignore` and must never be committed.
 
 Run `build_release.ps1` to create the small release ZIP and checksum under
 `dist/`. The script audits the staging list so runtime state cannot enter the
-archive. Tagging a version such as `v0.1.0` runs the GitHub release workflow.
+archive. Tagging a version such as `v0.2.0` runs the GitHub release workflow.
+
+Run `tests\Validate-Bootstrap.ps1`; add `-IncludeRuntime` for a real extraction,
+pip/Tkinter verification and repeated-repair test. Add `-IncludeDependencies`
+to install and isolate-check both core and voice requirements. The remaining
+clean-machine cases are listed in
+[docs/PORTABILITY_TEST_MATRIX.md](docs/PORTABILITY_TEST_MATRIX.md).
 
 Before publishing publicly, review [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
 and choose a source-code licence. No model licence is transferred by this repo.

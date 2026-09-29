@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version = '0.1.0')
+param([string]$Version = '0.2.0')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,7 +19,8 @@ $required = @(
     'payload\requirements-voice.txt',
     'payload\tools\bootstrap_voice_models.py',
     'payload\tools\diagnostics.py',
-    'docs\MODELS.md'
+    'docs\MODELS.md',
+    'docs\PORTABILITY_TEST_MATRIX.md'
 )
 
 foreach ($relative in $required) {

@@ -3,6 +3,7 @@ dist/
 downloads/
 *.partial
 *.log
+last-install-path.txt
 
 # Installed runtime state must never enter source control
 runtime/

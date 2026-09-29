@@ -17,13 +17,7 @@ jobs:
 
       - name: Parse installer and validate manifest
         shell: powershell
-        run: |
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            "$PWD\installer\Install-PortableAssistant.ps1", [ref]$null, [ref]$errors
-          )
-          if ($errors) { $errors | Format-List; exit 1 }
-          Get-Content installer\manifest.json -Raw | ConvertFrom-Json | Out-Null
+        run: .\tests\Validate-Bootstrap.ps1 -IncludeRuntime -IncludeDependencies -RuntimeTestRoot "$env:RUNNER_TEMP\Mellish Runtime Test"
 
       - name: Build small bootstrap ZIP
         shell: powershell

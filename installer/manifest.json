@@ -1,12 +1,16 @@
 {
   "schemaVersion": 1,
-  "appVersion": "0.1.0",
+  "appVersion": "0.2.0",
   "portablePort": 11437,
   "python": {
     "version": "3.11.9",
-    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe",
-    "md5": "e8dcd502e34932eebcaf1be056d5cbcd",
-    "requiredSigner": "Python Software Foundation"
+    "distribution": "python-build-standalone install_only",
+    "release": "20240814",
+    "archiveName": "cpython-3.11.9+20240814-x86_64-pc-windows-msvc-install_only.tar.gz",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20240814/cpython-3.11.9%2B20240814-x86_64-pc-windows-msvc-install_only.tar.gz",
+    "sha256": "4c71d25731214b8a960d1d87510f24179d819249c5b434aaf7135818421b6215",
+    "source": "https://github.com/astral-sh/python-build-standalone",
+    "licenseNotice": "The archive contains CPython and third-party components under their respective licenses; license files are included in the extracted distribution."
   },
   "ollama": {
     "version": "0.34.4",
