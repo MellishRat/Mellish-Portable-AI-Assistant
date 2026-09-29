@@ -12,6 +12,7 @@
 - [ ] Confirm no Python PATH, launcher, uninstall entry or file association is added.
 - [ ] Confirm the selected folder's Python can import pip and tkinter.
 - [ ] Confirm core and optional voice requirements install with `python.exe -m pip`.
+- [ ] Review `USER GUIDE.html` and the quick model guide against the current profiles, routing rules and tool support.
 - [ ] Test NVIDIA, CPU-only and low-disk-space paths.
 - [ ] Verify minimal and full installation recommendations.
 - [ ] Confirm repair/add-model mode preserves chats and settings.

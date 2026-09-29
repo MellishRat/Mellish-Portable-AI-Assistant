@@ -384,6 +384,14 @@ function Copy-AppPayload {
     $targetInstaller = Join-Path $Root 'installer'
     New-Item -ItemType Directory -Force -Path $targetInstaller | Out-Null
     Copy-Item -Path (Join-Path $ScriptRoot '*') -Destination $targetInstaller -Recurse -Force
+    $guide = Join-Path $RepoRoot 'USER GUIDE.html'
+    if (Test-Path -LiteralPath $guide) { Copy-Item -LiteralPath $guide -Destination $Root -Force }
+    $docsSource = Join-Path $RepoRoot 'docs'
+    if (Test-Path -LiteralPath $docsSource) {
+        $targetDocs = Join-Path $Root 'docs'
+        New-Item -ItemType Directory -Force -Path $targetDocs | Out-Null
+        Copy-Item -Path (Join-Path $docsSource '*') -Destination $targetDocs -Recurse -Force
+    }
 }
 
 function Write-LaunchFiles {

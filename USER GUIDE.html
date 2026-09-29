@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mellish Portable AI Assistant - User Guide</title>
+  <style>
+    :root{color-scheme:light;--ink:#09295c;--text:#203b5d;--paper:#fffdf5;--panel:#eef5ff;--accent:#208ff1}
+    *{box-sizing:border-box}body{margin:0;background:#e9eef6;color:var(--text);font:17px/1.55 "Segoe UI",Arial,sans-serif}
+    main{max-width:1050px;margin:32px auto;background:var(--paper);padding:42px 52px 60px;border-radius:24px;box-shadow:0 12px 40px #15365d25}
+    h1,h2{color:var(--ink);line-height:1.15}h1{font-size:42px;margin:0 0 8px}h2{margin-top:34px;font-size:26px}
+    .lead{font-size:21px;margin-top:0}.notice{background:#fff0c8;border-left:7px solid #ef9c21;padding:18px 20px;border-radius:12px}
+    .yesno{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:var(--panel);padding:18px 20px;border-radius:14px}
+    .card strong{color:var(--ink)}li{margin:.35em 0}code{background:#e8eef7;padding:.15em .35em;border-radius:5px}
+    img{display:block;width:100%;height:auto;margin:30px auto;border-radius:18px;box-shadow:0 8px 28px #15365d20}
+    a{color:#066bc5}.foot{margin-top:34px;font-size:14px;color:#61738b}
+    @media(max-width:720px){main{margin:0;padding:24px 18px;border-radius:0}.yesno{grid-template-columns:1fr}h1{font-size:34px}}
+    @media print{body{background:white}main{box-shadow:none;margin:0;max-width:none;padding:15mm}img{box-shadow:none;page-break-before:always}}
+  </style>
+</head>
+<body><main>
+  <h1>Mellish Portable AI Assistant</h1>
+  <p class="lead">A simple guide to choosing models, using images and voice, and understanding what is automatic.</p>
+
+  <h2>Quick start</h2>
+  <ol>
+    <li>Run <code>Start Assistant.bat</code> and wait for <strong>Ollama: ready</strong>.</li>
+    <li>Choose an <strong>Assistant Profile</strong> for the type of work.</li>
+    <li>Type a message and press <strong>Send</strong>, or use <code>Ctrl+Enter</code>.</li>
+    <li>Use <strong>Attach Image</strong> for screenshots, photos or scanned documents.</li>
+    <li>Use <strong>Stop / Interrupt</strong> to stop generation, speech or recording.</li>
+  </ol>
+
+  <h2>Does it switch models automatically?</h2>
+  <div class="yesno">
+    <div class="card"><strong>Yes, in these cases</strong><ul>
+      <li>Choosing a named Assistant Profile selects its paired model.</li>
+      <li>Any image routes the conversation to Qwen Vision.</li>
+      <li>Document OCR plus an image routes to GLM-OCR.</li>
+      <li>Project Knowledge uses BGE-M3 behind the scenes.</li>
+    </ul></div>
+    <div class="card"><strong>No, in these cases</strong><ul>
+      <li>A text question is not classified as coding or creative automatically.</li>
+      <li>Models do not communicate with or delegate to one another.</li>
+      <li>A model does not discover MCP tools by itself.</li>
+    </ul></div>
+  </div>
+  <p><strong>Important:</strong> after an image has been used, that chat continues on the image model because the image remains in its history. Use <strong>Clear Chat</strong> to return to the selected text model.</p>
+
+  <h2>Profiles and system prompts</h2>
+  <p>A profile selects a model, system prompt and recommended settings together. Edited system prompts are remembered separately for each profile, so changing profiles does not erase another profile's prompt. Use <strong>Custom</strong> for a manual model-and-prompt combination.</p>
+
+  <h2>Images, voice and local knowledge</h2>
+  <ul>
+    <li><strong>Images:</strong> attach files below 25 MB for analysis or OCR. This package does not include image generation.</li>
+    <li><strong>Speech-to-text:</strong> hold the microphone button, speak and release. Auto-send is optional.</li>
+    <li><strong>Text-to-speech:</strong> enable reply reading, then choose a voice and speed.</li>
+    <li><strong>Project Knowledge:</strong> index a local folder, enable it, and relevant excerpts will be supplied to the active chat model. It does not edit files.</li>
+  </ul>
+
+  <div class="notice"><strong>MCP and application control:</strong> the current app has no MCP client or general tool runner. It can advise and write scripts, but it cannot directly control Blender, GIMP or Unity. That requires a separately connected MCP server, a client/tool layer in this app, permissions, and explicit action handling. Qwen Coder would be the first model to test for programming tools; Vision helps only when screenshots are involved.</div>
+
+  <h2>Useful controls</h2>
+  <ul>
+    <li><strong>Temperature:</strong> lower is steadier; higher is more varied.</li>
+    <li><strong>Context:</strong> larger values remember more but use more memory.</li>
+    <li><strong>No Think:</strong> asks Qwen for a shorter direct response.</li>
+    <li><strong>Save/Load Chat:</strong> keeps conversations under the portable installation folder.</li>
+    <li><strong>Repair or Add Models:</strong> repairs the same installation or downloads another model.</li>
+  </ul>
+
+  <img src="docs/QUICK_MODEL_GUIDE.svg" alt="Quick guide explaining which local AI model to use">
+  <p class="foot">For the complete text version, open <a href="docs/USER_GUIDE.md">docs/USER_GUIDE.md</a>. Hardware drivers, Windows microphone permission and audio-device selection remain specific to each computer.</p>
+</main></body></html>

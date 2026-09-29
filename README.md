@@ -15,6 +15,10 @@ runtime, model and optional voice component into that folder.
 5. Keep the recommended models or change the selection, then click **Install**.
 6. Launch with the generated **Start Assistant.bat** or Desktop shortcut.
 
+Open **USER GUIDE.html** for a visual model-selection guide, model-routing
+explanations, voice and Project Knowledge instructions, and the current MCP/tool
+limitations. The installed app also has a **User Guide** button.
+
 The installer can be run again through **Repair or Add Models.bat** to repair
 dependencies or add another model. Interrupted Ollama model downloads resume.
 
@@ -89,7 +93,7 @@ are excluded by `.gitignore` and must never be committed.
 
 Run `build_release.ps1` to create the small release ZIP and checksum under
 `dist/`. The script audits the staging list so runtime state cannot enter the
-archive. Tagging a version such as `v0.2.0` runs the GitHub release workflow.
+archive. Tagging a version such as `v0.2.1` runs the GitHub release workflow.
 
 Run `tests\Validate-Bootstrap.ps1`; add `-IncludeRuntime` for a real extraction,
 pip/Tkinter verification and repeated-repair test. Add `-IncludeDependencies`

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1900" viewBox="0 0 1200 1900" role="img" aria-labelledby="title description">
+  <title id="title">Which local AI model should I use?</title>
+  <desc id="description">A quick guide to the models and automatic switching in Mellish Portable AI Assistant.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fffdf4"/><stop offset="1" stop-color="#f4f8ff"/></linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#17345d" flood-opacity=".13"/></filter>
+    <style>
+      .title{font:800 64px 'Segoe UI',Arial,sans-serif;fill:#08295d}.subtitle{font:600 28px 'Segoe UI',Arial,sans-serif;fill:#29486f}
+      .name{font:800 31px 'Segoe UI',Arial,sans-serif;fill:#08295d}.role{font:600 22px 'Segoe UI',Arial,sans-serif;fill:#18375f}
+      .try{font:600 18px 'Segoe UI',Arial,sans-serif;fill:#24486f}.num{font:800 42px 'Segoe UI',Arial,sans-serif;fill:white}
+      .small{font:600 18px 'Segoe UI',Arial,sans-serif;fill:#29486f}.boxTitle{font:800 25px 'Segoe UI',Arial,sans-serif;fill:#08295d}
+      .footer{font:600 20px 'Segoe UI',Arial,sans-serif;fill:#17375f}.chip{fill:white;fill-opacity:.75}
+    </style>
+  </defs>
+  <rect width="1200" height="1900" fill="url(#paper)"/>
+  <text class="title" x="600" y="88" text-anchor="middle">Which local AI model should I use?</text>
+  <text class="subtitle" x="600" y="132" text-anchor="middle">Choose a profile for the job - the models do not talk to each other.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="45" y="170" width="1110" height="130" rx="28" fill="#e7efff"/>
+    <text class="boxTitle" x="78" y="208">What switches automatically?</text>
+    <text class="small" x="78" y="242">YES: Assistant Profile changes its model. Image attached -> Vision. OCR profile + image -> GLM-OCR.</text>
+    <text class="small" x="78" y="273">NO: A text question is not routed by subject. Choose Coding or Creative yourself when you need it.</text>
+  </g>
+
+  <g transform="translate(45 330)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#d9efff"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#208ff1"/>
+    <text class="num" x="54" y="88" text-anchor="middle">1</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">Q</text>
+    <text class="name" x="225" y="45">Qwen 3.5 9B - General Assistant</text><text class="role" x="225" y="78">Everyday questions, explanations, rewriting and planning</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Try: "Make this email clearer and friendlier."</text>
+  </g>
+  <g transform="translate(45 493)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#e6dcff"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#7253d9"/>
+    <text class="num" x="54" y="88" text-anchor="middle">2</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">&lt;/&gt;</text>
+    <text class="name" x="225" y="45">Qwen 2.5 Coder 14B - Coding</text><text class="role" x="225" y="78">Unity, JavaScript, Blender Python, debugging and code review</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Try: "Find the bug in this Unity C# script."</text>
+  </g>
+  <g transform="translate(45 656)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#ffe1eb"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#df507a"/>
+    <text class="num" x="54" y="88" text-anchor="middle">3</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">N</text>
+    <text class="name" x="225" y="45">Mistral Nemo 12B - Creative Writing</text><text class="role" x="225" y="78">Fiction, dialogue, characters, world-building and role-play</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Try: "Rewrite this scene with more tension."</text>
+  </g>
+  <g transform="translate(45 819)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#dff4d7"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#4cae49"/>
+    <text class="num" x="54" y="88" text-anchor="middle">4</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">EYE</text>
+    <text class="name" x="225" y="45">Qwen 3.5 9B Vision - Pictures</text><text class="role" x="225" y="78">Screenshots, photos, diagrams and visual troubleshooting</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Attach an image: "Explain what is wrong here."</text>
+  </g>
+  <g transform="translate(45 982)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#ffe6c7"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#f28a25"/>
+    <text class="num" x="54" y="88" text-anchor="middle">5</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">TXT</text>
+    <text class="name" x="225" y="45">GLM-OCR - Documents and Scans</text><text class="role" x="225" y="78">Receipts, forms, UI text, tables and faithful transcription</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Choose Document OCR, attach image: "Type this out."</text>
+  </g>
+  <g transform="translate(45 1145)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#d9efff"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#208ff1"/>
+    <text class="num" x="54" y="88" text-anchor="middle">6</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">1.7</text>
+    <text class="name" x="225" y="45">Qwen 3 1.7B - Low-spec Chat</text><text class="role" x="225" y="78">Short answers and simple text tasks on slower computers</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Try: "Shorten this paragraph to three sentences."</text>
+  </g>
+  <g transform="translate(45 1308)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#edf3ff"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#457bc7"/>
+    <text class="num" x="54" y="88" text-anchor="middle">7</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">B</text>
+    <text class="name" x="225" y="45">Bonsai 1.7B - Tiny Experimental Helper</text><text class="role" x="225" y="78">Very lightweight experiments; expect lower accuracy and detail</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Try: "Suggest five names for this project."</text>
+  </g>
+  <g transform="translate(45 1471)" filter="url(#shadow)">
+    <rect width="1110" height="145" rx="25" fill="#dff0f1"/><path d="M25 0h82v145H25A25 25 0 0 1 0 120V25A25 25 0 0 1 25 0" fill="#398e92"/>
+    <text class="num" x="54" y="88" text-anchor="middle">8</text><circle cx="160" cy="72" r="42" fill="#fff"/><text class="name" x="160" y="83" text-anchor="middle">27</text>
+    <text class="name" x="225" y="45">Bonsai 27B Q1 - Optional Experiment</text><text class="role" x="225" y="78">Compressed reasoning/vision experiment; quality may vary</text>
+    <rect class="chip" x="225" y="96" width="635" height="34" rx="12"/><text class="try" x="240" y="120">Use only when installed; compare its answer with Qwen 9B.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="45" y="1650" width="1110" height="170" rx="28" fill="#fff0c8"/>
+    <text class="boxTitle" x="78" y="1692">MCP, Blender, GIMP and Unity</text>
+    <text class="footer" x="78" y="1730">The current app has no MCP client and cannot operate other programs directly.</text>
+    <text class="footer" x="78" y="1763">It can explain, plan and write scripts. Direct control needs a separate connected MCP/tool bridge.</text>
+    <text class="footer" x="78" y="1796">A model never discovers or contacts tools by itself; the application must provide and approve them.</text>
+  </g>
+  <text class="small" x="600" y="1860" text-anchor="middle">Tip: after using an image, Clear Chat to return the conversation to your selected text model.</text>
+</svg>

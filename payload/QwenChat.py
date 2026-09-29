@@ -50,6 +50,7 @@ TTS_DIR = ROOT_DIR / "voice" / "kokoro"
 TTS_MODEL = TTS_DIR / "kokoro-v1.0.onnx"
 TTS_VOICES = TTS_DIR / "voices-v1.0.bin"
 IMAGE_DIR = ROOT_DIR / "image-generation"
+USER_GUIDE = ROOT_DIR / "USER GUIDE.html"
 COMFY_PORTABLE = IMAGE_DIR / "ComfyUI_windows_portable"
 COMFY_DIR = COMFY_PORTABLE / "ComfyUI"
 COMFY_PYTHON = COMFY_PORTABLE / "python_embeded" / "python.exe"
@@ -359,6 +360,12 @@ class QwenChatApp:
         self.apply_theme()
         self.save_settings()
 
+    def open_user_guide(self):
+        if USER_GUIDE.exists() and os.name == "nt":
+            os.startfile(USER_GUIDE)
+        else:
+            messagebox.showinfo("User Guide", f"Open this file in a browser:\n\n{USER_GUIDE}")
+
     def build_ui(self):
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
@@ -379,6 +386,7 @@ class QwenChatApp:
         self.gpu_label.grid(row=0, column=6, sticky="e")
         self.theme_button = ttk.Button(top, text="Light Mode", command=self.toggle_theme)
         self.theme_button.grid(row=0, column=7, padx=(12, 0))
+        ttk.Button(top, text="User Guide", command=self.open_user_guide).grid(row=0, column=8, padx=(8, 0))
 
         status = ttk.Frame(self.root, style="Panel.TFrame", padding=(12, 5))
         status.grid(row=1, column=0, sticky="ew")

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version = '0.2.0')
+param([string]$Version = '0.2.1')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -10,6 +10,7 @@ $archive = Join-Path $dist 'Mellish-Portable-AI-Assistant-Bootstrap.zip'
 
 $required = @(
     'Install Portable Assistant.bat',
+    'USER GUIDE.html',
     'README.md',
     'RELEASE_CHECKLIST.md',
     'installer\Install-PortableAssistant.ps1',
@@ -20,7 +21,9 @@ $required = @(
     'payload\tools\bootstrap_voice_models.py',
     'payload\tools\diagnostics.py',
     'docs\MODELS.md',
-    'docs\PORTABILITY_TEST_MATRIX.md'
+    'docs\PORTABILITY_TEST_MATRIX.md',
+    'docs\USER_GUIDE.md',
+    'docs\QUICK_MODEL_GUIDE.svg'
 )
 
 foreach ($relative in $required) {
