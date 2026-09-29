@@ -24,7 +24,10 @@ import wave
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
+
+from tools.chat_store import ChatStore, title_from_messages
+from tools.mcp_client import MCPClientAdapter
 
 
 APP_TITLE = "Qwen Portable AI Assistant"
@@ -41,6 +44,7 @@ OCR_MODEL = "glm-ocr:latest"
 EMBED_MODEL = "bge-m3:latest"
 SETTINGS_FILE = ROOT_DIR / "config" / "settings.json"
 CHATS_DIR = ROOT_DIR / "chats"
+MCP_CONFIG_FILE = ROOT_DIR / "config" / "mcp_servers.json"
 CACHE_DIR = ROOT_DIR / "cache"
 KNOWLEDGE_DIR = ROOT_DIR / "knowledge"
 KNOWLEDGE_META = KNOWLEDGE_DIR / "project-index.json"
@@ -169,6 +173,8 @@ DEFAULT_SETTINGS = {
     "knowledge_enabled": False,
     "knowledge_folder": "",
     "knowledge_top_k": 5,
+    "active_chat_id": "",
+    "mcp_enabled": False,
 }
 
 BG = "#111418"
@@ -218,6 +224,10 @@ class QwenChatApp:
         self.palette = THEMES.get(self.settings.get("theme", "dark"), THEMES["dark"])
         self.root.configure(bg=self.palette["bg"])
         self.messages: list[dict] = []
+        self.chat_store = ChatStore(CHATS_DIR)
+        self.active_chat = self.chat_store.new_record(self.chat_settings_snapshot())
+        self.mcp = MCPClientAdapter(ROOT_DIR, MCP_CONFIG_FILE)
+        self.mcp_tools: list[dict] = []
         self.pending_image: Path | None = None
         self.pending_preview = None
         self.generating = False
@@ -253,12 +263,15 @@ class QwenChatApp:
 
         self.configure_style()
         self.build_ui()
+        self.restore_active_chat()
         self.apply_theme()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(50, self.process_ui_queue)
         self.root.after(1000, self.refresh_gpu_status)
         threading.Thread(target=self.ensure_ollama_running, daemon=True).start()
         threading.Thread(target=self.refresh_component_status, daemon=True).start()
+        if self.settings.get("mcp_enabled"):
+            self.refresh_mcp_tools_async()
 
     # ---------- UI ----------
 
@@ -334,6 +347,11 @@ class QwenChatApp:
             if isinstance(widget, ttk.Combobox):
                 widget.bind("<Button-1>", lambda _event, combo=widget: self.root.after(0, self.style_combo_popup, combo), add="+")
                 self.style_combo_popup(widget)
+            elif isinstance(widget, tk.Listbox):
+                widget.configure(
+                    bg=self.palette["field"], fg=self.palette["text"],
+                    selectbackground=self.palette["select"], selectforeground=self.palette["text"],
+                )
 
     @staticmethod
     def walk_widgets(parent):
@@ -372,7 +390,7 @@ class QwenChatApp:
 
         top = ttk.Frame(self.root, padding=(12, 9))
         top.grid(row=0, column=0, sticky="ew")
-        top.columnconfigure(6, weight=1)
+        top.columnconfigure(7, weight=1)
         ttk.Label(top, text=APP_TITLE, font=("Segoe UI", 15, "bold")).grid(row=0, column=0, padx=(0, 14))
         self.connection_label = ttk.Label(top, text="○ Starting Ollama...", foreground=MUTED)
         self.connection_label.grid(row=0, column=1, padx=(0, 12))
@@ -382,15 +400,18 @@ class QwenChatApp:
         self.model_combo.grid(row=0, column=3, padx=(0, 6))
         self.model_combo.bind("<<ComboboxSelected>>", self.on_model_selected)
         ttk.Button(top, text="Refresh", command=self.refresh_models_async).grid(row=0, column=4, padx=(0, 10))
+        ttk.Button(top, text="New Chat", command=self.new_chat).grid(row=0, column=5, padx=(0, 10))
+        self.chat_title_var = tk.StringVar(value="New chat")
+        ttk.Label(top, textvariable=self.chat_title_var, style="Muted.TLabel").grid(row=0, column=6, padx=(0, 12))
         self.gpu_label = ttk.Label(top, text="GPU: checking...", style="Muted.TLabel")
-        self.gpu_label.grid(row=0, column=6, sticky="e")
+        self.gpu_label.grid(row=0, column=7, sticky="e")
         self.theme_button = ttk.Button(top, text="Light Mode", command=self.toggle_theme)
-        self.theme_button.grid(row=0, column=7, padx=(12, 0))
-        ttk.Button(top, text="User Guide", command=self.open_user_guide).grid(row=0, column=8, padx=(8, 0))
+        self.theme_button.grid(row=0, column=8, padx=(12, 0))
+        ttk.Button(top, text="User Guide", command=self.open_user_guide).grid(row=0, column=9, padx=(8, 0))
 
         status = ttk.Frame(self.root, style="Panel.TFrame", padding=(12, 5))
         status.grid(row=1, column=0, sticky="ew")
-        self.status_vars = {name: tk.StringVar(value=f"{name}: checking...") for name in ("Ollama", "Vision", "Knowledge", "STT", "TTS", "Microphone")}
+        self.status_vars = {name: tk.StringVar(value=f"{name}: checking...") for name in ("Ollama", "Vision", "Knowledge", "MCP", "STT", "TTS", "Microphone")}
         for idx, name in enumerate(self.status_vars):
             ttk.Label(status, textvariable=self.status_vars[name], style="Status.TLabel").grid(row=0, column=idx, padx=(0, 22))
 
@@ -429,12 +450,18 @@ class QwenChatApp:
         settings_tab = ttk.Frame(notebook, padding=10)
         voice_tab = ttk.Frame(notebook, padding=10)
         knowledge_tab = ttk.Frame(notebook, padding=10)
+        chats_tab = ttk.Frame(notebook, padding=10)
+        mcp_tab = ttk.Frame(notebook, padding=10)
         notebook.add(settings_tab, text="Generation")
         notebook.add(voice_tab, text="Voice")
         notebook.add(knowledge_tab, text="Knowledge")
+        notebook.add(chats_tab, text="Chats")
+        notebook.add(mcp_tab, text="MCP Tools")
         self.build_generation_panel(settings_tab)
         self.build_voice_panel(voice_tab)
         self.build_knowledge_panel(knowledge_tab)
+        self.build_chat_history_panel(chats_tab)
+        self.build_mcp_panel(mcp_tab)
 
         attachment = ttk.Frame(chat_tab, padding=(0, 6, 0, 0))
         attachment.grid(row=1, column=0, sticky="ew")
@@ -469,6 +496,270 @@ class QwenChatApp:
         self.stats_label.grid(row=1, column=0, sticky="w", pady=(5, 0))
         ttk.Label(input_frame, text="Ctrl+Enter sends", style="Muted.TLabel").grid(row=1, column=1, sticky="e", pady=(5, 0))
         self.append_system_message("Assistant started. Waiting for local components...")
+
+    def build_chat_history_panel(self, panel):
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(1, weight=1)
+        ttk.Label(panel, text="Saved conversations", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.chat_history_list = tk.Listbox(
+            panel, bg=self.palette["field"], fg=self.palette["text"], selectbackground=self.palette["select"],
+            selectforeground=self.palette["text"], relief=tk.FLAT, exportselection=False,
+        )
+        self.chat_history_list.grid(row=1, column=0, sticky="nsew")
+        self.chat_history_list.bind("<Double-Button-1>", lambda _event: self.open_selected_chat())
+        buttons = ttk.Frame(panel)
+        buttons.grid(row=2, column=0, sticky="ew", pady=(7, 0))
+        for column in range(2):
+            buttons.columnconfigure(column, weight=1)
+        ttk.Button(buttons, text="New", command=self.new_chat).grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        ttk.Button(buttons, text="Open", command=self.open_selected_chat).grid(row=0, column=1, sticky="ew", padx=(3, 0))
+        ttk.Button(buttons, text="Rename", command=self.rename_selected_chat).grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=(6, 0))
+        ttk.Button(buttons, text="Delete", command=self.delete_selected_chat).grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=(6, 0))
+        ttk.Label(
+            panel, text="Chats auto-save after every message and reopen where you left off.",
+            style="Muted.TLabel", wraplength=270, justify=tk.LEFT,
+        ).grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self.chat_history_ids = []
+        self.refresh_chat_history()
+
+    def build_mcp_panel(self, panel):
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(4, weight=1)
+        self.mcp_enabled_var = tk.BooleanVar(value=self.settings.get("mcp_enabled", False))
+        ttk.Checkbutton(
+            panel, text="Allow connected MCP tools", variable=self.mcp_enabled_var, command=self.toggle_mcp,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            panel,
+            text="Every proposed tool action asks for approval. Connected apps and their add-ons must already be running.",
+            style="Muted.TLabel", wraplength=270, justify=tk.LEFT,
+        ).grid(row=1, column=0, sticky="w", pady=(5, 8))
+        actions = ttk.Frame(panel)
+        actions.grid(row=2, column=0, sticky="ew")
+        actions.columnconfigure(0, weight=1)
+        actions.columnconfigure(1, weight=1)
+        ttk.Button(actions, text="Refresh Tools", command=self.refresh_mcp_tools_async).grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        ttk.Button(actions, text="Open Config", command=self.open_mcp_config).grid(row=0, column=1, sticky="ew", padx=(3, 0))
+        self.mcp_status_var = tk.StringVar(value="MCP tools are disabled")
+        ttk.Label(panel, textvariable=self.mcp_status_var, style="Muted.TLabel", wraplength=270, justify=tk.LEFT).grid(
+            row=3, column=0, sticky="w", pady=(8, 5)
+        )
+        self.mcp_tool_list = tk.Listbox(
+            panel, bg=self.palette["field"], fg=self.palette["text"], selectbackground=self.palette["select"],
+            selectforeground=self.palette["text"], relief=tk.FLAT,
+        )
+        self.mcp_tool_list.grid(row=4, column=0, sticky="nsew")
+
+    # ---------- Automatic chat history ----------
+
+    def chat_settings_snapshot(self):
+        return {
+            key: self.settings.get(key)
+            for key in ("model", "temperature", "context", "no_think", "system_prompt", "assistant_profile")
+        }
+
+    def autosave_chat(self):
+        if not hasattr(self, "active_chat"):
+            return
+        self.active_chat["messages"] = self.messages
+        self.active_chat["settings"] = self.chat_settings_snapshot()
+        if self.active_chat.get("title") == "New chat":
+            self.active_chat["title"] = title_from_messages(self.messages)
+        self.active_chat = self.chat_store.save(self.active_chat)
+        self.settings["active_chat_id"] = self.active_chat["id"]
+        if hasattr(self, "chat_title_var"):
+            self.chat_title_var.set(self.active_chat["title"])
+        self.save_settings()
+        self.refresh_chat_history()
+
+    def restore_active_chat(self):
+        chat_id = str(self.settings.get("active_chat_id", ""))
+        if chat_id:
+            try:
+                self.activate_chat(self.chat_store.load(chat_id), announce=False)
+                return
+            except Exception:
+                pass
+        self.active_chat = self.chat_store.new_record(self.chat_settings_snapshot())
+        self.chat_title_var.set("New chat")
+        self.refresh_chat_history()
+
+    def refresh_chat_history(self):
+        if not hasattr(self, "chat_history_list"):
+            return
+        items = self.chat_store.list()
+        self.chat_history_ids = [item["id"] for item in items]
+        self.chat_history_list.delete(0, tk.END)
+        for item in items:
+            stamp = str(item.get("updated_at", "")).replace("T", " ")[:16]
+            self.chat_history_list.insert(tk.END, f"{item.get('title', 'Untitled')}  ·  {stamp}")
+
+    def new_chat(self):
+        if self.generating:
+            messagebox.showinfo("New chat", "Stop the current response before starting another chat.")
+            return
+        if self.messages:
+            self.autosave_chat()
+        self.active_chat = self.chat_store.new_record(self.chat_settings_snapshot())
+        self.messages = []
+        self.last_assistant_reply = ""
+        self.settings["active_chat_id"] = self.active_chat["id"]
+        self.render_active_chat()
+        self.chat_title_var.set("New chat")
+        self.save_settings()
+        self.refresh_chat_history()
+        self.input_box.focus_set()
+
+    def selected_chat_id(self):
+        selection = self.chat_history_list.curselection()
+        return self.chat_history_ids[selection[0]] if selection else None
+
+    def open_selected_chat(self):
+        chat_id = self.selected_chat_id()
+        if not chat_id or self.generating:
+            return
+        if self.messages:
+            self.autosave_chat()
+        try:
+            self.activate_chat(self.chat_store.load(chat_id))
+        except Exception as exc:
+            messagebox.showerror("Open chat", str(exc))
+
+    def activate_chat(self, record, announce=True):
+        self.active_chat = record
+        self.messages = record.get("messages", [])
+        loaded = record.get("settings", {})
+        self.settings.update({key: value for key, value in loaded.items() if key in DEFAULT_SETTINGS})
+        self.settings["active_chat_id"] = record["id"]
+        self.model_var.set(self.settings.get("model", TEXT_MODEL))
+        self.assistant_profile_var.set(self.settings.get("assistant_profile", "Custom"))
+        self.temp_var.set(float(self.settings.get("temperature", 0.7)))
+        self.context_var.set(str(self.settings.get("context", 8192)))
+        self.no_think_var.set(bool(self.settings.get("no_think", True)))
+        self.render_active_chat()
+        self.chat_title_var.set(record.get("title", "Untitled"))
+        self.save_settings()
+        self.refresh_chat_history()
+        if announce:
+            self.append_system_message(f"Opened chat: {record.get('title', 'Untitled')}")
+
+    def render_active_chat(self):
+        self.chat_box.configure(state=tk.NORMAL)
+        self.chat_box.delete("1.0", tk.END)
+        self.chat_box.configure(state=tk.DISABLED)
+        self.last_assistant_reply = ""
+        for message in self.messages:
+            content = str(message.get("content", ""))
+            if content.endswith(" /no_think"):
+                content = content[:-10].rstrip()
+            role = message.get("role")
+            if role == "user":
+                self.append_user_message(content, message.get("image_name"))
+            elif role == "assistant" and content:
+                self.append_raw("\nAssistant\n", "assistant_name")
+                self.append_raw(content + "\n")
+                self.last_assistant_reply = content
+            elif role == "tool":
+                self.append_system_message(f"Tool result ({message.get('tool_name', 'MCP')}): {content[:500]}")
+
+    def rename_selected_chat(self):
+        chat_id = self.selected_chat_id()
+        if not chat_id:
+            return
+        current = self.chat_store.load(chat_id)
+        title = simpledialog.askstring("Rename chat", "Conversation name:", initialvalue=current.get("title", ""), parent=self.root)
+        if title is None:
+            return
+        renamed = self.chat_store.rename(chat_id, title)
+        if self.active_chat.get("id") == chat_id:
+            self.active_chat = renamed
+            self.chat_title_var.set(renamed["title"])
+        self.refresh_chat_history()
+
+    def delete_selected_chat(self):
+        chat_id = self.selected_chat_id()
+        if not chat_id:
+            return
+        record = self.chat_store.load(chat_id)
+        if not messagebox.askyesno("Delete chat", f"Delete '{record.get('title', 'this chat')}'?\n\nThis cannot be undone."):
+            return
+        self.chat_store.delete(chat_id)
+        if self.active_chat.get("id") == chat_id:
+            self.active_chat = self.chat_store.new_record(self.chat_settings_snapshot())
+            self.messages = []
+            self.settings["active_chat_id"] = self.active_chat["id"]
+            self.chat_title_var.set("New chat")
+            self.render_active_chat()
+        self.save_settings()
+        self.refresh_chat_history()
+
+    # ---------- MCP tools ----------
+
+    def toggle_mcp(self):
+        self.settings["mcp_enabled"] = bool(self.mcp_enabled_var.get())
+        self.save_settings()
+        if self.settings["mcp_enabled"]:
+            self.refresh_mcp_tools_async()
+        else:
+            self.mcp_tools = []
+            self.mcp_tool_list.delete(0, tk.END)
+            self.mcp_status_var.set("MCP tools are disabled")
+            self.status_vars["MCP"].set("MCP: disabled")
+
+    def open_mcp_config(self):
+        if os.name == "nt":
+            os.startfile(MCP_CONFIG_FILE)
+        else:
+            messagebox.showinfo("MCP configuration", str(MCP_CONFIG_FILE))
+
+    def refresh_mcp_tools_async(self):
+        if not self.settings.get("mcp_enabled", False):
+            self.mcp_status_var.set("Enable MCP tools first")
+            return
+        self.mcp_status_var.set("Discovering tools from enabled servers...")
+        self.status_vars["MCP"].set("MCP: connecting...")
+        threading.Thread(target=self.refresh_mcp_tools, daemon=True).start()
+
+    def refresh_mcp_tools(self):
+        try:
+            tools = self.mcp.discover_tools()
+            errors = dict(self.mcp.last_errors)
+            self.ui(self.apply_mcp_tools, tools, errors)
+        except Exception as exc:
+            self.ui(self.apply_mcp_tools, [], {"client": str(exc)})
+
+    def apply_mcp_tools(self, tools, errors):
+        self.mcp_tools = tools
+        self.mcp_tool_list.delete(0, tk.END)
+        for tool in tools:
+            self.mcp_tool_list.insert(tk.END, tool["function"]["name"])
+        enabled = self.mcp.enabled_servers()
+        if errors:
+            detail = "; ".join(f"{name}: {error}" for name, error in errors.items())
+            self.mcp_status_var.set(f"{len(tools)} tools available. Errors: {detail}")
+        elif enabled:
+            self.mcp_status_var.set(f"{len(tools)} tools from {', '.join(enabled)}")
+        else:
+            self.mcp_status_var.set("No servers enabled in mcp_servers.json")
+        self.status_vars["MCP"].set(f"MCP: {len(tools)} tools" if tools else "MCP: no tools")
+
+    def approve_mcp_tool(self, name, arguments):
+        decision = {"approved": False}
+        ready = threading.Event()
+
+        def ask():
+            formatted = json.dumps(arguments, indent=2, ensure_ascii=False, default=str)
+            decision["approved"] = messagebox.askyesno(
+                "Approve MCP action?",
+                f"The local model wants to run:\n\n{name}\n\nArguments:\n{formatted[:5000]}\n\nAllow this one action?",
+            )
+            ready.set()
+
+        self.ui(ask)
+        while not ready.wait(0.1):
+            if self.stop_requested.is_set():
+                return False
+        return decision["approved"]
 
     def build_image_studio(self, tab):
         tab.columnconfigure(0, weight=1)
@@ -985,6 +1276,8 @@ class QwenChatApp:
                     "knowledge_enabled": bool(self.knowledge_enabled_var.get()),
                     "knowledge_folder": self.knowledge_folder_var.get(),
                 })
+            if hasattr(self, "mcp_enabled_var"):
+                self.settings["mcp_enabled"] = bool(self.mcp_enabled_var.get())
             if hasattr(self, "image_profile_var"):
                 self.settings.update({
                     "image_profile": self.image_profile_var.get(),
@@ -1037,6 +1330,16 @@ class QwenChatApp:
         knowledge_ready = knowledge_model and KNOWLEDGE_META.exists() and KNOWLEDGE_VECTORS.exists()
         knowledge_text = "ready" if knowledge_ready else ("model installed, no index" if knowledge_model else "model not installed")
         self.ui(self.set_status, "Knowledge", knowledge_text, True if knowledge_ready else (False if not knowledge_model else None))
+        try:
+            enabled_mcp = self.mcp.enabled_servers()
+            if not self.settings.get("mcp_enabled"):
+                self.ui(self.set_status, "MCP", "disabled", None)
+            elif enabled_mcp:
+                self.ui(self.set_status, "MCP", f"configured: {', '.join(enabled_mcp)}", None)
+            else:
+                self.ui(self.set_status, "MCP", "no servers enabled", False)
+        except Exception:
+            self.ui(self.set_status, "MCP", "configuration error", False)
         try:
             import faster_whisper  # noqa: F401
             stt_text = "ready" if any(STT_MODELS.iterdir()) else "engine ready, model missing"
@@ -1852,6 +2155,7 @@ class QwenChatApp:
             message["images"] = [base64.b64encode(image_path.read_bytes()).decode("ascii")]
             message["image_name"] = image_path.name
         self.messages.append(message)
+        self.autosave_chat()
         self.remove_image()
         self.append_raw("\nAssistant\n", "assistant_name")
         self.generating = True
@@ -1861,6 +2165,18 @@ class QwenChatApp:
         threading.Thread(target=self.generate_response, args=(model,), daemon=True).start()
 
     def generate_response(self, model):
+        if self.settings.get("mcp_enabled"):
+            if not self.mcp_tools:
+                try:
+                    self.mcp_tools = self.mcp.discover_tools()
+                    errors = dict(self.mcp.last_errors)
+                    self.ui(self.apply_mcp_tools, self.mcp_tools, errors)
+                except Exception as exc:
+                    self.mcp_tools = []
+                    self.ui(self.apply_mcp_tools, [], {"client": str(exc)})
+            if self.mcp_tools:
+                self.generate_response_with_tools(model)
+                return
         request_messages = []
         system_prompt = self.settings.get("system_prompt", DEFAULT_SYSTEM_PROMPT).strip()
         if system_prompt:
@@ -1904,6 +2220,7 @@ class QwenChatApp:
             if full_response:
                 self.messages.append({"role": "assistant", "content": full_response})
                 self.last_assistant_reply = full_response
+                self.ui(self.autosave_chat)
             elapsed = max(time.perf_counter() - started, 0.001)
             if final_stats:
                 count = final_stats.get("eval_count", 0) or 0
@@ -1929,6 +2246,127 @@ class QwenChatApp:
             if not self.stop_requested.is_set():
                 self.ui(self.append_raw, f"\n[Error: {exc}]\n", "error")
                 self.ui(self.stats_label.configure, text="Generation error")
+        finally:
+            self.active_response = None
+            self.generating = False
+            self.ui(self.send_button.configure, state=tk.NORMAL)
+            self.ui(self.append_raw, "\n")
+
+    def generate_response_with_tools(self, model):
+        """Run an Ollama tool loop. Each MCP invocation requires one UI approval."""
+        request_messages = []
+        system_prompt = self.settings.get("system_prompt", DEFAULT_SYSTEM_PROMPT).strip()
+        tool_prompt = (
+            "You have MCP tools from locally connected applications. Use them only when the user's request requires "
+            "an application action or live application data. Prefer inspection before mutation, never claim a tool "
+            "succeeded unless its result says so, and explain when a required tool is unavailable."
+        )
+        if system_prompt:
+            request_messages.append({"role": "system", "content": system_prompt})
+        request_messages.append({"role": "system", "content": tool_prompt})
+        latest_user_text = next((item.get("content", "") for item in reversed(self.messages) if item.get("role") == "user"), "")
+        knowledge = self.retrieve_knowledge(latest_user_text) if latest_user_text and model not in (OCR_MODEL, CREATIVE_MODEL) else ""
+        if knowledge:
+            request_messages.append({"role": "system", "content": knowledge})
+            self.ui(self.knowledge_status_var.set, "Project knowledge added to this request")
+        for saved in self.messages:
+            request_messages.append({
+                key: value for key, value in saved.items()
+                if key in ("role", "content", "images", "tool_calls", "tool_name")
+            })
+
+        started = time.perf_counter()
+        final_stats = None
+        full_response = ""
+        try:
+            for _round in range(8):
+                if self.stop_requested.is_set():
+                    break
+                payload = {
+                    "model": model,
+                    "messages": request_messages,
+                    "tools": self.mcp_tools,
+                    "stream": False,
+                    "keep_alive": -1,
+                    "options": {
+                        "temperature": float(self.settings.get("temperature", 0.7)),
+                        "num_ctx": int(self.settings.get("context", 8192)),
+                    },
+                }
+                request = urllib.request.Request(
+                    OLLAMA_URL + "/api/chat", data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                response = urllib.request.urlopen(request, timeout=1800)
+                self.active_response = response
+                with response:
+                    result = json.loads(response.read().decode("utf-8"))
+                final_stats = result
+                assistant_message = result.get("message", {})
+                calls = assistant_message.get("tool_calls", []) or []
+                content = str(assistant_message.get("content", "") or "")
+                if not calls:
+                    full_response = content
+                    if content:
+                        self.messages.append({"role": "assistant", "content": content})
+                        self.last_assistant_reply = content
+                        self.ui(self.append_raw, content)
+                    break
+
+                stored_assistant = {"role": "assistant", "content": content, "tool_calls": calls}
+                request_messages.append(stored_assistant)
+                self.messages.append(stored_assistant)
+                if content:
+                    self.ui(self.append_raw, content + "\n")
+                for call in calls:
+                    function = call.get("function", {})
+                    name = str(function.get("name", ""))
+                    arguments = function.get("arguments", {}) or {}
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except ValueError:
+                            arguments = {"raw": arguments}
+                    self.ui(self.append_system_message, f"MCP proposes: {name}")
+                    if self.approve_mcp_tool(name, arguments):
+                        self.ui(self.stats_label.configure, text=f"Running approved MCP tool: {name}...")
+                        try:
+                            tool_output = self.mcp.call_tool(name, arguments)
+                        except Exception as exc:
+                            tool_output = f"MCP tool failed: {type(exc).__name__}: {exc}"
+                    else:
+                        tool_output = "The user declined this tool action. Do not claim it was performed."
+                    tool_message = {"role": "tool", "content": tool_output, "tool_name": name}
+                    request_messages.append(tool_message)
+                    self.messages.append(tool_message)
+                    self.ui(self.append_system_message, f"{name}: {tool_output[:700]}")
+                    self.ui(self.autosave_chat)
+            else:
+                raise RuntimeError("The MCP tool loop reached its eight-step safety limit.")
+
+            elapsed = max(time.perf_counter() - started, 0.001)
+            if final_stats:
+                count = final_stats.get("eval_count", 0) or 0
+                duration = final_stats.get("eval_duration", 0) or 0
+                prompt = final_stats.get("prompt_eval_count", 0) or 0
+                tps = count / (duration / 1e9) if duration else count / elapsed
+                self.ui(self.stats_label.configure, text=f"{count} output tokens • {prompt} prompt tokens • {tps:.1f} tok/s • {elapsed:.1f}s • MCP")
+            if full_response:
+                self.ui(self.autosave_chat)
+                if self.settings.get("tts_enabled", False) and not self.stop_requested.is_set():
+                    self.speak_text_async(full_response)
+        except urllib.error.HTTPError as exc:
+            try:
+                raw_detail = exc.read().decode("utf-8", errors="replace")
+                detail = json.loads(raw_detail).get("error", raw_detail)
+            except Exception:
+                detail = str(exc)
+            self.ui(self.append_raw, f"\n[Ollama tool request failed: {detail}]\n", "error")
+            self.ui(self.stats_label.configure, text=f"Ollama HTTP {exc.code}")
+        except Exception as exc:
+            if not self.stop_requested.is_set():
+                self.ui(self.append_raw, f"\n[MCP error: {exc}]\n", "error")
+                self.ui(self.stats_label.configure, text="MCP generation error")
         finally:
             self.active_response = None
             self.generating = False
@@ -1961,6 +2399,7 @@ class QwenChatApp:
         self.chat_box.delete("1.0", tk.END)
         self.chat_box.configure(state=tk.DISABLED)
         self.append_system_message("Conversation cleared.")
+        self.autosave_chat()
 
     # ---------- Speech to text ----------
 
@@ -2141,30 +2580,9 @@ class QwenChatApp:
         if not path:
             return
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
-            self.messages = data.get("messages", [])
-            loaded_settings = data.get("settings", data)
-            self.settings.update({key: value for key, value in loaded_settings.items() if key in DEFAULT_SETTINGS})
-            self.model_var.set(self.settings["model"])
-            self.assistant_profile_var.set(self.settings.get("assistant_profile", "Custom"))
-            self.temp_var.set(self.settings["temperature"])
-            self.context_var.set(str(self.settings["context"]))
-            self.no_think_var.set(self.settings["no_think"])
-            self.chat_box.configure(state=tk.NORMAL)
-            self.chat_box.delete("1.0", tk.END)
-            self.chat_box.configure(state=tk.DISABLED)
-            for msg in self.messages:
-                content = msg.get("content", "")
-                if content.endswith(" /no_think"):
-                    content = content[:-10].rstrip()
-                if msg.get("role") == "user":
-                    self.append_user_message(content, msg.get("image_name"))
-                elif msg.get("role") == "assistant":
-                    self.append_raw("\nAssistant\n", "assistant_name")
-                    self.append_raw(content + "\n")
-                    self.last_assistant_reply = content
-            self.append_system_message(f"Loaded: {Path(path).name}")
-            self.save_settings()
+            record = self.chat_store.import_file(Path(path))
+            self.activate_chat(record, announce=False)
+            self.append_system_message(f"Imported into automatic history: {Path(path).name}")
         except Exception as exc:
             messagebox.showerror("Load Error", str(exc))
 
@@ -2205,6 +2623,8 @@ class QwenChatApp:
         ttk.Button(buttons, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
     def on_close(self):
+        if self.messages:
+            self.autosave_chat()
         self.save_settings()
         self.stop_all()
         self.root.destroy()

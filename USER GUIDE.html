@@ -29,6 +29,7 @@
     <li>Type a message and press <strong>Send</strong>, or use <code>Ctrl+Enter</code>.</li>
     <li>Use <strong>Attach Image</strong> for screenshots, photos or scanned documents.</li>
     <li>Use <strong>Stop / Interrupt</strong> to stop generation, speech or recording.</li>
+    <li>Use <strong>New Chat</strong> for a clean conversation; earlier chats save automatically.</li>
   </ol>
 
   <h2>Does it switch models automatically?</h2>
@@ -45,7 +46,7 @@
       <li>A model does not discover MCP tools by itself.</li>
     </ul></div>
   </div>
-  <p><strong>Important:</strong> after an image has been used, that chat continues on the image model because the image remains in its history. Use <strong>Clear Chat</strong> to return to the selected text model.</p>
+  <p><strong>Important:</strong> after an image has been used, that chat continues on the image model because the image remains in its history. Use <strong>New Chat</strong> to return to the selected text model without erasing the old conversation.</p>
 
   <h2>Profiles and system prompts</h2>
   <p>A profile selects a model, system prompt and recommended settings together. Edited system prompts are remembered separately for each profile, so changing profiles does not erase another profile's prompt. Use <strong>Custom</strong> for a manual model-and-prompt combination.</p>
@@ -58,14 +59,22 @@
     <li><strong>Project Knowledge:</strong> index a local folder, enable it, and relevant excerpts will be supplied to the active chat model. It does not edit files.</li>
   </ul>
 
-  <div class="notice"><strong>MCP and application control:</strong> the current app has no MCP client or general tool runner. It can advise and write scripts, but it cannot directly control Blender, GIMP or Unity. That requires a separately connected MCP server, a client/tool layer in this app, permissions, and explicit action handling. Qwen Coder would be the first model to test for programming tools; Vision helps only when screenshots are involved.</div>
+  <div class="notice"><strong>MCP and application control:</strong> the app now has an MCP client. Open <strong>MCP Tools</strong>, configure and enable the target application's connector, then refresh its tools. Blender, GIMP and Unity still require their own matching in-app add-on/server. Every proposed action shows its exact arguments and asks permission before running. Local models can choose the wrong tool, so keep backups and verify changes in the target app. See <a href="docs/MCP_SETUP.md">the MCP setup guide</a>.</div>
+
+  <h2>Chats and saved history</h2>
+  <ul>
+    <li><strong>New Chat</strong> starts clean without deleting earlier work.</li>
+    <li>The <strong>Chats</strong> panel can open, rename or delete conversations.</li>
+    <li>User messages, replies and MCP tool results are saved automatically.</li>
+    <li>The last active conversation reopens after restarting the assistant.</li>
+  </ul>
 
   <h2>Useful controls</h2>
   <ul>
     <li><strong>Temperature:</strong> lower is steadier; higher is more varied.</li>
     <li><strong>Context:</strong> larger values remember more but use more memory.</li>
     <li><strong>No Think:</strong> asks Qwen for a shorter direct response.</li>
-    <li><strong>Save/Load Chat:</strong> keeps conversations under the portable installation folder.</li>
+    <li><strong>Save/Load Chat:</strong> exports or imports JSON in addition to automatic history.</li>
     <li><strong>Repair or Add Models:</strong> repairs the same installation or downloads another model.</li>
   </ul>
 

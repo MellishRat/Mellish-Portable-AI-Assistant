@@ -1,2 +1,4 @@
 numpy>=1.26,<3
 Pillow>=10,<13
+mcp>=2,<3
+unity-mcp-server==1.0.11

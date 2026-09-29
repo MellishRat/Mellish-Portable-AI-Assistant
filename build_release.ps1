@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version = '0.2.1')
+param([string]$Version = '0.3.0')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -20,10 +20,14 @@ $required = @(
     'payload\requirements-voice.txt',
     'payload\tools\bootstrap_voice_models.py',
     'payload\tools\diagnostics.py',
+    'payload\tools\__init__.py',
+    'payload\tools\chat_store.py',
+    'payload\tools\mcp_client.py',
     'docs\MODELS.md',
     'docs\PORTABILITY_TEST_MATRIX.md',
     'docs\USER_GUIDE.md',
-    'docs\QUICK_MODEL_GUIDE.svg'
+    'docs\QUICK_MODEL_GUIDE.svg',
+    'docs\MCP_SETUP.md'
 )
 
 foreach ($relative in $required) {

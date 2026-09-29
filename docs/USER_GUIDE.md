@@ -6,7 +6,8 @@
 2. Choose an **Assistant Profile** in the Generation panel.
 3. Type a message and press **Send**, or press `Ctrl+Enter`.
 4. Use **Stop / Interrupt** to stop generation, speech or recording.
-5. Use **Save Chat** when you want to keep a conversation.
+5. Conversations save automatically. Use **New Chat** to start another, and the
+   **Chats** panel to reopen, rename or delete one.
 
 ## Which model should I use?
 
@@ -34,8 +35,8 @@ Partly:
 - Attaching any image automatically uses Qwen Vision.
 - If the Document OCR profile is selected, an attached image uses GLM-OCR.
 - Once a conversation contains an image, later replies continue using the image
-  model because the image remains in the conversation history. Use **Clear Chat**
-  to return to the model shown in the model selector.
+  model because the image remains in the conversation history. Use **New Chat**
+  to return to the model shown in the model selector without erasing the old chat.
 - Project Knowledge automatically calls BGE-M3 to find relevant local excerpts.
 
 It does **not** inspect an ordinary text question and decide that it is coding,
@@ -88,23 +89,30 @@ not edit files or run the project. Rebuild the index after major project changes
 
 ## MCP and controlling other applications
 
-The current application does **not** contain an MCP client or a general tool
-execution system. It cannot directly click in Blender, change a GIMP document,
-edit a Unity project or call an MCP server. It can still explain workflows and
-write Blender Python, Unity C#, JavaScript or other scripts for you to review.
+The application includes an MCP client for `stdio` and Streamable HTTP servers.
+Open **MCP Tools**, enable tool use, configure the required bridge, and press
+**Refresh Tools**. Discovered tool schemas are supplied to Ollama and every
+individual call requires confirmation.
 
-A future MCP integration needs all of the following:
+Blender, GIMP and Unity still require a matching plug-in/add-on inside the
+target application. Unity's portable Python bridge installs with Mellish; its
+Unity Editor package is still required. Blender and GIMP connectors stay
+separate because host versions and security models differ.
 
-1. An MCP server or plugin connected to the target application.
-2. An MCP client inside this assistant that supplies the available tool schemas
-   to the selected model.
-3. Permission and confirmation rules for actions that change files or programs.
-4. A model capable of returning reliable structured tool calls.
+Use **Game Development and Coding** first for programming-oriented tool work.
+Local models can select the wrong tool or produce malformed arguments, so check
+the approval dialog, keep backups/source control, and verify the result in the
+target app. See [MCP_SETUP.md](MCP_SETUP.md) for setup and security limitations.
 
-The model does not discover an MCP server or know which tool to contact by
-itself. The application must connect the tools and tell the model what is
-available. For programming-oriented MCP work, Qwen Coder is the sensible first
-model to test; Vision is useful only when a screenshot also needs analysis.
+## Chats and automatic history
+
+- **New Chat** starts a clean conversation without deleting earlier work.
+- The **Chats** panel lists saved conversations newest first.
+- Double-click a chat, or select it and press **Open**, to continue it.
+- Titles come from the first user message and can be renamed.
+- Chats auto-save after user messages, replies and tool results; the last active
+  chat is restored after restart.
+- **Save Chat** and **Load Chat** remain available for JSON export/import.
 
 ## Generation controls
 

@@ -12,6 +12,11 @@
 - [ ] Confirm no Python PATH, launcher, uninstall entry or file association is added.
 - [ ] Confirm the selected folder's Python can import pip and tkinter.
 - [ ] Confirm core and optional voice requirements install with `python.exe -m pip`.
+- [ ] Confirm the MCP client discovers and calls the mock stdio server.
+- [ ] Confirm Unity tools appear only while its Unity package/server is running.
+- [ ] Confirm every MCP call asks for approval and declined calls do not execute.
+- [ ] Review Blender/GIMP connector versions and warnings in `docs\MCP_SETUP.md`.
+- [ ] Confirm chats auto-save, survive restart, rename/delete correctly, and stay out of the bootstrap ZIP.
 - [ ] Review `USER GUIDE.html` and the quick model guide against the current profiles, routing rules and tool support.
 - [ ] Test NVIDIA, CPU-only and low-disk-space paths.
 - [ ] Verify minimal and full installation recommendations.

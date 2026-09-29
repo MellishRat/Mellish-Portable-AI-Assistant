@@ -38,6 +38,9 @@ dependencies or add another model. Interrupted Ollama model downloads resume.
 - Dedicated loopback port `11437`, avoiding conflicts with a normal Ollama app.
 - Portable launch, console, repair and diagnostics batch files.
 - Optional Desktop and Start Menu shortcuts.
+- Named conversations with automatic history, resume, rename and JSON export.
+- An MCP 2.x client for local stdio/Streamable HTTP tools, per-action approval,
+  and a bundled Unity Python bridge.
 
 ## Important expectations
 
@@ -93,7 +96,11 @@ are excluded by `.gitignore` and must never be committed.
 
 Run `build_release.ps1` to create the small release ZIP and checksum under
 `dist/`. The script audits the staging list so runtime state cannot enter the
-archive. Tagging a version such as `v0.2.1` runs the GitHub release workflow.
+archive. Tagging a version such as `v0.3.0` runs the GitHub release workflow.
+
+Target applications still need their own MCP add-on. See
+[docs/MCP_SETUP.md](docs/MCP_SETUP.md) for Unity, Blender and GIMP setup,
+connector trust boundaries, and local-model limitations.
 
 Run `tests\Validate-Bootstrap.ps1`; add `-IncludeRuntime` for a real extraction,
 pip/Tkinter verification and repeated-repair test. Add `-IncludeDependencies`
