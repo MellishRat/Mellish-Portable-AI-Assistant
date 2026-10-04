@@ -151,6 +151,15 @@ class NarrationProject:
                 return line
         raise KeyError(f"No line with id {line_id!r}.")
 
+    def assign_speaker(self, line_id: str, speaker: str) -> dict[str, Any]:
+        line = self.line_by_id(line_id)
+        new_speaker = speaker.strip() or "Unknown"
+        if line.get("speaker") != new_speaker:
+            line["speaker"] = new_speaker
+            line["status"] = "changed" if line.get("audio") else "draft"
+            self.rebuild_cast()
+        return line
+
     def effective_voice(self, line: dict[str, Any]) -> tuple[str, float]:
         cast = self.data["cast"].get(line.get("speaker"), {})
         voice = line.get("voice") or cast.get("voice") or self.data["settings"]["default_voice"]

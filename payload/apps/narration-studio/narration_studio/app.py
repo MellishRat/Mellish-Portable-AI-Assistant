@@ -6,8 +6,12 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import winsound
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
+
+import soundfile as sf
+from PIL import Image, ImageTk
 
 from . import __version__
 from .analyzer import analyze_comic_image, analyze_text
@@ -60,6 +64,13 @@ class NarrationStudio(tk.Tk):
         self.tts = TTSEngine()
         self.cancel_event = threading.Event()
         self.busy = False
+        self._speaker_editor = None
+        self._playback_after = None
+        self._playback_active = False
+        self._playback_lines = []
+        self._playback_index = 0
+        self._comic_image = None
+        self._comic_photo = None
         self._build_style()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -107,12 +118,15 @@ class NarrationStudio(tk.Tk):
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill="both", expand=True)
         self.script_tab = ttk.Frame(self.tabs)
+        self.playback_tab = ttk.Frame(self.tabs)
         self.cast_tab = ttk.Frame(self.tabs)
         self.export_tab = ttk.Frame(self.tabs)
         self.tabs.add(self.script_tab, text="Script")
+        self.tabs.add(self.playback_tab, text="Comic Reader")
         self.tabs.add(self.cast_tab, text="Cast & Pronunciation")
         self.tabs.add(self.export_tab, text="Generate & Export")
         self._build_script_tab()
+        self._build_playback_tab()
         self._build_cast_tab()
         self._build_export_tab()
 
@@ -147,6 +161,7 @@ class NarrationStudio(tk.Tk):
         table_frame.rowconfigure(0, weight=1)
         table_frame.columnconfigure(0, weight=1)
         self.line_tree.bind("<<TreeviewSelect>>", self.load_selected_line)
+        self.line_tree.bind("<Double-1>", self.begin_speaker_edit)
 
         fields = ttk.Frame(editor)
         fields.pack(fill="x")
@@ -157,7 +172,7 @@ class NarrationStudio(tk.Tk):
         self.edit_speed = tk.StringVar()
         for index, (label, widget) in enumerate((
             ("Part", ttk.Spinbox(fields, from_=1, to=9999, textvariable=self.edit_part, width=7)),
-            ("Speaker", ttk.Entry(fields, textvariable=self.edit_speaker, width=22)),
+            ("Speaker", ttk.Combobox(fields, textvariable=self.edit_speaker, width=22)),
             ("Type", ttk.Combobox(fields, textvariable=self.edit_type, values=("dialogue", "narration", "thought", "caption", "sound_effect"), state="readonly", width=14)),
             ("Voice override", ttk.Combobox(fields, textvariable=self.edit_voice, values=[""] + KOKORO_VOICES, width=18)),
             ("Speed override", ttk.Entry(fields, textvariable=self.edit_speed, width=10)),
@@ -176,6 +191,54 @@ class NarrationStudio(tk.Tk):
         ttk.Button(direction_row, text="Apply Changes", command=self.apply_line_changes).pack(side="left")
         ttk.Button(direction_row, text="Add Blank Line", command=self.add_blank_line).pack(side="left", padx=4)
         ttk.Button(direction_row, text="Delete Selected", command=self.delete_selected).pack(side="left")
+
+        self.edit_speaker_combo = fields.grid_slaves(row=1, column=1)[0]
+        ttk.Label(editor, text="Tip: double-click any Speaker cell above to reassign it from the cast list.").pack(anchor="w", pady=(5, 0))
+
+    def _build_playback_tab(self):
+        outer = ttk.Frame(self.playback_tab, padding=8)
+        outer.pack(fill="both", expand=True)
+        controls = ttk.Frame(outer)
+        controls.pack(fill="x", pady=(0, 8))
+        ttk.Label(controls, text="Comic page").pack(side="left")
+        self.playback_page = tk.StringVar()
+        self.playback_page_combo = ttk.Combobox(controls, textvariable=self.playback_page, state="readonly", width=9)
+        self.playback_page_combo.pack(side="left", padx=6)
+        self.playback_page_combo.bind("<<ComboboxSelected>>", lambda _event: self.load_playback_page())
+        ttk.Button(controls, text="Previous Page", command=lambda: self.change_playback_page(-1)).pack(side="left", padx=2)
+        ttk.Button(controls, text="Next Page", command=lambda: self.change_playback_page(1)).pack(side="left", padx=2)
+        ttk.Separator(controls, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(controls, text="Play Page", command=self.play_comic_page).pack(side="left", padx=2)
+        ttk.Button(controls, text="Play Selected Line", command=self.play_selected_comic_line).pack(side="left", padx=2)
+        ttk.Button(controls, text="Stop", command=self.stop_playback).pack(side="left", padx=2)
+        self.playback_status = tk.StringVar(value="Open a project containing comic pages.")
+        ttk.Label(controls, textvariable=self.playback_status).pack(side="right", padx=8)
+
+        pane = ttk.Panedwindow(outer, orient="horizontal")
+        pane.pack(fill="both", expand=True)
+        image_frame = ttk.Frame(pane, relief="sunken")
+        script_frame = ttk.Frame(pane)
+        pane.add(image_frame, weight=3)
+        pane.add(script_frame, weight=2)
+        self.comic_image_label = ttk.Label(image_frame, text="No comic page selected", anchor="center")
+        self.comic_image_label.pack(fill="both", expand=True)
+        self.comic_image_label.bind("<Configure>", self.resize_comic_image)
+
+        columns = ("speaker", "text", "status")
+        self.playback_tree = ttk.Treeview(script_frame, columns=columns, show="headings", selectmode="browse")
+        self.playback_tree.heading("speaker", text="Speaker")
+        self.playback_tree.heading("text", text="Line")
+        self.playback_tree.heading("status", text="Audio")
+        self.playback_tree.column("speaker", width=125, stretch=False)
+        self.playback_tree.column("text", width=420, stretch=True)
+        self.playback_tree.column("status", width=85, stretch=False)
+        scroll = ttk.Scrollbar(script_frame, orient="vertical", command=self.playback_tree.yview)
+        self.playback_tree.configure(yscrollcommand=scroll.set)
+        self.playback_tree.grid(row=0, column=0, sticky="nsew")
+        scroll.grid(row=0, column=1, sticky="ns")
+        script_frame.rowconfigure(0, weight=1)
+        script_frame.columnconfigure(0, weight=1)
+        self.playback_tree.bind("<Double-1>", lambda _event: self.play_selected_comic_line())
 
     def _build_cast_tab(self):
         pane = ttk.Panedwindow(self.cast_tab, orient="horizontal")
@@ -272,6 +335,7 @@ class NarrationStudio(tk.Tk):
         self.refresh_lines()
         self.refresh_cast()
         self.refresh_pronunciations()
+        self.refresh_playback()
 
     def refresh_lines(self):
         selected = set(self.line_tree.selection())
@@ -298,11 +362,195 @@ class NarrationStudio(tk.Tk):
         for speaker, details in sorted(self.project.data["cast"].items()):
             self.cast_tree.insert("", "end", iid=speaker, text=speaker,
                                   values=(details.get("voice", ""), details.get("speed", 1.0), ", ".join(details.get("aliases", []))))
+        self.edit_speaker_combo.configure(values=self.speaker_choices())
+
+    def speaker_choices(self):
+        established = list(self.project.data["cast"]) if self.project else []
+        return sorted(set(established + ["Narrator", "Unknown", "Man", "Woman"]), key=str.casefold)
+
+    def begin_speaker_edit(self, event):
+        if not self.project or self.line_tree.identify_column(event.x) != "#3":
+            return
+        line_id = self.line_tree.identify_row(event.y)
+        if not line_id:
+            return
+        bounds = self.line_tree.bbox(line_id, "speaker")
+        if not bounds:
+            return
+        if self._speaker_editor is not None:
+            self._speaker_editor.destroy()
+        self.line_tree.selection_set(line_id)
+        x, y, width, height = bounds
+        editor = ttk.Combobox(self.line_tree, values=self.speaker_choices(), state="normal")
+        editor.set(self.project.line_by_id(line_id).get("speaker", "Unknown"))
+        editor.place(x=x, y=y, width=width, height=height)
+        self._speaker_editor = editor
+
+        def commit(_event=None):
+            if self._speaker_editor is not editor:
+                return
+            speaker = editor.get().strip() or "Unknown"
+            self._speaker_editor = None
+            editor.destroy()
+            self.project.assign_speaker(line_id, speaker)
+            self.project.save()
+            self.refresh_all()
+            if self.line_tree.exists(line_id):
+                self.line_tree.selection_set(line_id)
+                self.line_tree.see(line_id)
+
+        editor.bind("<<ComboboxSelected>>", lambda event_: self.after_idle(commit, event_))
+        editor.bind("<Return>", commit)
+        editor.bind("<Escape>", lambda _event: (setattr(self, "_speaker_editor", None), editor.destroy()))
+        editor.bind("<FocusOut>", commit)
+        editor.focus_set()
+        editor.selection_range(0, "end")
 
     def refresh_pronunciations(self):
         self.pronunciation_text.delete("1.0", "end")
         if self.project:
             self.pronunciation_text.insert("1.0", "\n".join(f"{key} = {value}" for key, value in self.project.data["pronunciations"].items()))
+
+    def comic_sources(self):
+        if not self.project:
+            return {}
+        return {int(source.get("page", 1)): source for source in self.project.data.get("sources", [])
+                if source.get("type") == "comic_image" and source.get("path")}
+
+    def refresh_playback(self):
+        sources = self.comic_sources()
+        pages = [str(page) for page in sorted(sources)]
+        self.playback_page_combo.configure(values=pages)
+        if not pages:
+            self.playback_page.set("")
+            self._comic_image = None
+            self._comic_photo = None
+            self.comic_image_label.configure(image="", text="This project has no imported comic pages.")
+            for item in self.playback_tree.get_children():
+                self.playback_tree.delete(item)
+            self.playback_status.set("Add comic pages from the Import menu.")
+            return
+        if self.playback_page.get() not in pages:
+            self.playback_page.set(pages[0])
+        self.load_playback_page(stop_audio=False)
+
+    def load_playback_page(self, stop_audio=True):
+        if stop_audio:
+            self.stop_playback()
+        if not self.project or not self.playback_page.get():
+            return
+        page = int(self.playback_page.get())
+        source = self.comic_sources().get(page)
+        image_path = self.project.folder / source["path"] if source else None
+        try:
+            if not image_path or not image_path.is_file():
+                raise FileNotFoundError(image_path or "No image source")
+            with Image.open(image_path) as opened:
+                self._comic_image = opened.convert("RGB").copy()
+            self.resize_comic_image()
+        except Exception as exc:
+            self._comic_image = None
+            self._comic_photo = None
+            self.comic_image_label.configure(image="", text=f"Could not display page {page}:\n{exc}")
+
+        for item in self.playback_tree.get_children():
+            self.playback_tree.delete(item)
+        lines = [line for line in self.project.lines if int(line.get("part", 1)) == page]
+        for line in lines:
+            audio = self.project.folder / line.get("audio", "") if line.get("audio") else None
+            status = "Ready" if audio and audio.is_file() else "Not generated"
+            self.playback_tree.insert("", "end", iid=line["id"],
+                                      values=(line.get("speaker", "Unknown"), line.get("text", ""), status))
+        ready = sum(1 for line in lines if line.get("audio") and (self.project.folder / line["audio"]).is_file())
+        self.playback_status.set(f"Page {page}: {ready}/{len(lines)} voice lines ready")
+
+    def resize_comic_image(self, _event=None):
+        if self._comic_image is None:
+            return
+        width = max(100, self.comic_image_label.winfo_width() - 16)
+        height = max(100, self.comic_image_label.winfo_height() - 16)
+        display = self._comic_image.copy()
+        display.thumbnail((width, height), Image.Resampling.LANCZOS)
+        self._comic_photo = ImageTk.PhotoImage(display)
+        self.comic_image_label.configure(image=self._comic_photo, text="")
+
+    def change_playback_page(self, offset):
+        pages = list(self.playback_page_combo.cget("values"))
+        if not pages:
+            return
+        current = pages.index(self.playback_page.get()) if self.playback_page.get() in pages else 0
+        self.playback_page.set(pages[max(0, min(len(pages) - 1, current + offset))])
+        self.load_playback_page()
+
+    def playable_page_lines(self):
+        if not self.project or not self.playback_page.get():
+            return []
+        page = int(self.playback_page.get())
+        return [line for line in self.project.lines if int(line.get("part", 1)) == page
+                and line.get("audio") and (self.project.folder / line["audio"]).is_file()]
+
+    def play_comic_page(self):
+        lines = self.playable_page_lines()
+        if not lines:
+            messagebox.showinfo("Comic Reader", "Generate this page's voice lines first.")
+            return
+        self._begin_playback(lines, 0)
+
+    def play_selected_comic_line(self):
+        selected = self.playback_tree.selection()
+        if not selected:
+            messagebox.showinfo("Comic Reader", "Select a generated line first.")
+            return
+        lines = self.playable_page_lines()
+        index = next((number for number, line in enumerate(lines) if line["id"] == selected[0]), None)
+        if index is None:
+            messagebox.showinfo("Comic Reader", "That line has not been generated yet.")
+            return
+        self._begin_playback(lines, index, single=True)
+
+    def _begin_playback(self, lines, index, single=False):
+        self.stop_playback(update_status=False)
+        self._playback_lines = lines[index:index + 1] if single else lines[index:]
+        self._playback_index = 0
+        self._playback_active = True
+        self._playback_step()
+
+    def _playback_step(self):
+        if not self._playback_active or self._playback_index >= len(self._playback_lines):
+            self.stop_playback(update_status=False)
+            self.playback_status.set("Playback finished")
+            return
+        line = self._playback_lines[self._playback_index]
+        audio_path = self.project.folder / line["audio"]
+        try:
+            winsound.PlaySound(str(audio_path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            duration_ms = max(100, round(float(sf.info(str(audio_path)).duration) * 1000))
+        except Exception as exc:
+            self.stop_playback(update_status=False)
+            messagebox.showerror("Comic Reader", f"Could not play {audio_path.name}:\n{exc}")
+            return
+        self.playback_tree.selection_set(line["id"])
+        self.playback_tree.focus(line["id"])
+        self.playback_tree.see(line["id"])
+        self.playback_status.set(f"{line.get('speaker', 'Unknown')}: {line.get('text', '')[:90]}")
+        self._playback_index += 1
+        gap = int(self.project.data.get("settings", {}).get("gap_ms", 250))
+        self._playback_after = self.after(duration_ms + gap, self._playback_step)
+
+    def stop_playback(self, update_status=True):
+        self._playback_active = False
+        if self._playback_after is not None:
+            try:
+                self.after_cancel(self._playback_after)
+            except Exception:
+                pass
+            self._playback_after = None
+        try:
+            winsound.PlaySound(None, 0)
+        except RuntimeError:
+            pass
+        if update_status:
+            self.playback_status.set("Playback stopped")
 
     def paste_text(self):
         project = self.require_project()
@@ -547,6 +795,7 @@ class NarrationStudio(tk.Tk):
         if self.project:
             self.project.save()
         self.cancel_event.set()
+        self.stop_playback(update_status=False)
         self.destroy()
 
 

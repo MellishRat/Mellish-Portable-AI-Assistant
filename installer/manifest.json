@@ -24,7 +24,7 @@
       "name": "Mellish Narration Studio",
       "optional": true,
       "requiresVoice": true,
-      "description": "Books, comics, accessible narration and Unity/VRChat voice-line production with 11 MCP tools."
+      "description": "Books, comics, accessible narration, page-synchronised comic playback and Unity/VRChat voice-line production with 11 MCP tools."
     }
   ],
   "models": [
