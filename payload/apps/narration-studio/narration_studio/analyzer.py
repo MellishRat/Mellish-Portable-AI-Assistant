@@ -218,3 +218,29 @@ def analyze_comic_image(path: Path, *, page: int, use_ocr: bool = False) -> list
                 source={"image": path.name, "page": page},
             ))
     return output
+
+
+def extract_image_text(path: Path) -> str:
+    """Transcribe readable text from a screenshot or document image in reading order."""
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    prompt = (
+        "Transcribe every readable piece of text in this image in natural reading order. "
+        "Preserve wording and line breaks where useful. Do not describe the image and do not "
+        "invent missing text. Return only a JSON object with one string field named text."
+    )
+    errors = []
+    for model in (OCR_MODEL, VISION_MODEL):
+        try:
+            content = ollama_chat(model, [{"role": "user", "content": prompt, "images": [encoded]}])
+            cleaned = content.strip()
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+                cleaned = re.sub(r"\s*```$", "", cleaned)
+            data = json.loads(cleaned)
+            text = str(data.get("text", "")).strip() if isinstance(data, dict) else ""
+            if text:
+                return text
+            raise ValueError("The OCR model returned no text.")
+        except Exception as exc:
+            errors.append(f"{model}: {exc}")
+    raise RuntimeError("Image text extraction failed. " + " | ".join(errors))

@@ -3,6 +3,22 @@ from __future__ import annotations
 import re
 
 
+def clean_spoken_text(text: str, skip_symbols: bool) -> str:
+    if not skip_symbols:
+        return text.strip()
+    cleaned = "".join(character if character.isalnum() or character.isspace() or character in "'’" else " "
+                      for character in text)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def clean_spoken_text(text: str, skip_symbols: bool) -> str:
+    if not skip_symbols:
+        return text.strip()
+    cleaned = "".join(character if character.isalnum() or character.isspace() or character in "'’" else " "
+                      for character in text)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
 def text_chunks_with_ranges(text: str, limit: int = 450) -> list[tuple[int, int, str]]:
     """Split long text for TTS while retaining offsets for UI highlighting."""
     if limit < 40:

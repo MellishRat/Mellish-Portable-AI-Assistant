@@ -13,6 +13,10 @@ The Text Reader tab reads pasted text without requiring a project. Select a
 voice card, use Preview to hear its sample, and press Read Aloud. Preview and
 reading audio is cached under the contained assistant cache folder.
 
+Use "Skip punctuation / special characters" when decorative symbols should not
+be spoken. The Screen Reader tab captures a rectangle using two clicks, extracts
+its text locally, and can read the editable result aloud with highlighting.
+
 INSTALL
 1. Extract the complete ZIP.
 2. Run "Install Narration Studio.cmd".

@@ -2,25 +2,27 @@ from __future__ import annotations
 
 import json
 import hashlib
+import ctypes
 import os
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import winsound
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import soundfile as sf
-from PIL import Image, ImageTk
+from PIL import Image, ImageGrab, ImageTk
 
 from . import __version__
-from .analyzer import analyze_comic_image, analyze_text
+from .analyzer import analyze_comic_image, analyze_text, extract_image_text
 from .exporters import export_dialogue, export_srt
 from .importers import IMAGE_EXTENSIONS, copy_source, read_document
 from .paths import assistant_root, kokoro_files, ollama_url, projects_root
 from .project import NarrationProject, new_line, safe_slug
-from .reader import text_chunks_with_ranges
+from .reader import clean_spoken_text, text_chunks_with_ranges
 from .tts import KOKORO_VOICES, TTSEngine, combine_part
 
 
@@ -78,6 +80,11 @@ class NarrationStudio(tk.Tk):
         self._reader_active = False
         self._reader_items = []
         self._reader_index = 0
+        self._reader_widget = None
+        self._reader_status_var = None
+        self.screen_image_path = None
+        self._screen_image = None
+        self._screen_photo = None
         self._build_style()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -127,15 +134,18 @@ class NarrationStudio(tk.Tk):
         self.script_tab = ttk.Frame(self.tabs)
         self.reader_tab = ttk.Frame(self.tabs)
         self.playback_tab = ttk.Frame(self.tabs)
+        self.screen_reader_tab = ttk.Frame(self.tabs)
         self.cast_tab = ttk.Frame(self.tabs)
         self.export_tab = ttk.Frame(self.tabs)
         self.tabs.add(self.script_tab, text="Script")
         self.tabs.add(self.reader_tab, text="Text Reader")
+        self.tabs.add(self.screen_reader_tab, text="Screen Reader")
         self.tabs.add(self.playback_tab, text="Comic Reader")
         self.tabs.add(self.cast_tab, text="Cast & Pronunciation")
         self.tabs.add(self.export_tab, text="Generate & Export")
         self._build_script_tab()
         self._build_reader_tab()
+        self._build_screen_reader_tab()
         self._build_playback_tab()
         self._build_cast_tab()
         self._build_export_tab()
@@ -229,10 +239,14 @@ class NarrationStudio(tk.Tk):
         text_frame.rowconfigure(0, weight=1)
         text_frame.columnconfigure(0, weight=1)
         controls = ttk.Frame(text_side)
-        controls.pack(fill="x", pady=(8, 0))
+        controls.pack(fill="x", pady=(0, 8), before=text_frame)
         ttk.Button(controls, text="Read Aloud", command=self.start_text_reader).pack(side="left", padx=2)
         ttk.Button(controls, text="Stop", command=self.stop_text_reader).pack(side="left", padx=2)
+        ttk.Button(controls, text="Paste", command=self.paste_reader_text).pack(side="left", padx=2)
         ttk.Button(controls, text="Clear", command=self.clear_text_reader).pack(side="left", padx=2)
+        self.skip_symbols = tk.BooleanVar(value=False)
+        ttk.Checkbutton(controls, text="Skip punctuation / special characters",
+                        variable=self.skip_symbols).pack(side="left", padx=(12, 2))
         ttk.Label(controls, text="Speed").pack(side="left", padx=(16, 4))
         self.reader_speed = tk.DoubleVar(value=1.0)
         ttk.Spinbox(controls, from_=0.5, to=2.0, increment=0.05, textvariable=self.reader_speed, width=6).pack(side="left")
@@ -263,6 +277,42 @@ class NarrationStudio(tk.Tk):
             ttk.Button(card, text="Preview", command=lambda selected=voice: self.preview_reader_voice(selected)).pack(side="right", padx=(5, 0))
         cards.columnconfigure(0, weight=1)
         cards.columnconfigure(1, weight=1)
+
+    def _build_screen_reader_tab(self):
+        outer = ttk.Frame(self.screen_reader_tab, padding=8)
+        outer.pack(fill="both", expand=True)
+        controls = ttk.Frame(outer)
+        controls.pack(fill="x", pady=(0, 7))
+        ttk.Button(controls, text="Capture Screen Area", command=self.capture_screen_area).pack(side="left", padx=2)
+        ttk.Button(controls, text="Paste Image", command=self.paste_screen_image).pack(side="left", padx=2)
+        ttk.Button(controls, text="Extract Text", command=self.extract_screen_text).pack(side="left", padx=2)
+        ttk.Button(controls, text="Read Aloud", command=self.start_screen_reader).pack(side="left", padx=(12, 2))
+        ttk.Button(controls, text="Stop", command=self.stop_text_reader).pack(side="left", padx=2)
+        self.screen_auto_read = tk.BooleanVar(value=False)
+        ttk.Checkbutton(controls, text="Read automatically after OCR", variable=self.screen_auto_read).pack(side="left", padx=10)
+        ttk.Checkbutton(controls, text="Skip symbols", variable=self.skip_symbols).pack(side="left", padx=4)
+        ttk.Label(controls, text="Uses Text Reader voice:").pack(side="left", padx=(10, 3))
+        ttk.Label(controls, textvariable=self.reader_voice, font=("Segoe UI", 9, "bold")).pack(side="left")
+        self.screen_status = tk.StringVar(value="Capture an area or paste an image from the clipboard.")
+        ttk.Label(controls, textvariable=self.screen_status).pack(side="right", padx=6)
+
+        pane = ttk.Panedwindow(outer, orient="vertical")
+        pane.pack(fill="both", expand=True)
+        preview_frame = ttk.LabelFrame(pane, text="Captured Image", padding=5)
+        text_frame = ttk.LabelFrame(pane, text="Extracted Text", padding=5)
+        pane.add(preview_frame, weight=3)
+        pane.add(text_frame, weight=2)
+        self.screen_preview = ttk.Label(preview_frame, text="No image captured", anchor="center")
+        self.screen_preview.pack(fill="both", expand=True)
+        self.screen_preview.bind("<Configure>", self.resize_screen_preview)
+        self.screen_text = tk.Text(text_frame, wrap="word", undo=True, font=("Segoe UI", 11), padx=10, pady=8)
+        self.screen_text.tag_configure("reading", background="#ffe08a", foreground="#111111")
+        screen_scroll = ttk.Scrollbar(text_frame, orient="vertical", command=self.screen_text.yview)
+        self.screen_text.configure(yscrollcommand=screen_scroll.set)
+        self.screen_text.grid(row=0, column=0, sticky="nsew")
+        screen_scroll.grid(row=0, column=1, sticky="ns")
+        text_frame.rowconfigure(0, weight=1)
+        text_frame.columnconfigure(0, weight=1)
 
     @staticmethod
     def voice_description(voice):
@@ -493,28 +543,37 @@ class NarrationStudio(tk.Tk):
         return folder / f"{prefix}_{voice}_{digest}.wav"
 
     def start_text_reader(self):
+        self._start_reading_widget(self.reader_text, self.reader_status, "Text Reader")
+
+    def start_screen_reader(self):
+        self._start_reading_widget(self.screen_text, self.screen_status, "Screen Reader")
+
+    def _start_reading_widget(self, widget, status_var, title):
         if self.busy:
-            self.reader_status.set("Please wait for the current operation to finish.")
+            status_var.set("Please wait for the current operation to finish.")
             return
-        text = self.reader_text.get("1.0", "end-1c")
+        text = widget.get("1.0", "end-1c")
         chunks = text_chunks_with_ranges(text)
         if not chunks:
-            messagebox.showinfo("Text Reader", "Paste some text first.")
+            messagebox.showinfo(title, "Paste or extract some text first.")
             return
         try:
             speed = float(self.reader_speed.get())
             if not 0.5 <= speed <= 2.0:
                 raise ValueError
         except (TypeError, ValueError, tk.TclError):
-            messagebox.showerror("Text Reader", "Speed must be between 0.5 and 2.0.")
+            messagebox.showerror(title, "Speed must be between 0.5 and 2.0.")
             return
         voice = self.reader_voice.get() or "af_sarah"
+        skip_symbols = bool(self.skip_symbols.get())
         self.stop_text_reader(update_status=False)
         self.stop_playback(update_status=False)
         self.reader_cancel_event.clear()
-        self.reader_text.configure(state="disabled")
+        self._reader_widget = widget
+        self._reader_status_var = status_var
+        widget.configure(state="disabled")
         self.busy = True
-        self.reader_status.set(f"Preparing {len(chunks)} section(s) with {voice}…")
+        status_var.set(f"Preparing {len(chunks)} section(s) with {voice}…")
 
         def worker():
             items = []
@@ -523,28 +582,35 @@ class NarrationStudio(tk.Tk):
                 for number, (start, end, spoken) in enumerate(chunks, 1):
                     if self.reader_cancel_event.is_set():
                         break
-                    destination = self.reader_cache_file(spoken, voice, speed)
+                    speech = clean_spoken_text(spoken, skip_symbols)
+                    if not speech:
+                        continue
+                    destination = self.reader_cache_file(speech, voice, speed)
                     if not destination.is_file():
-                        self.tts.synthesize(spoken, destination, voice=voice, speed=speed)
+                        self.tts.synthesize(speech, destination, voice=voice, speed=speed)
                     items.append((start, end, destination))
                     self.after(0, lambda done=number, total=len(chunks):
-                               self.reader_status.set(f"Prepared {done}/{total} section(s)…"))
+                               status_var.set(f"Prepared {done}/{total} section(s)…"))
             except Exception as exc:
                 error = exc
-            self.after(0, lambda: self._reader_generation_done(error, items))
+            self.after(0, lambda: self._reader_generation_done(error, items, widget, status_var, title))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _reader_generation_done(self, error, items):
+    def _reader_generation_done(self, error, items, widget, status_var, title):
         self.busy = False
         if error:
-            self.reader_text.configure(state="normal")
-            self.reader_status.set("Text preparation failed")
-            messagebox.showerror("Text Reader", str(error))
+            widget.configure(state="normal")
+            status_var.set("Text preparation failed")
+            messagebox.showerror(title, str(error))
             return
-        if self.reader_cancel_event.is_set() or not items:
-            self.reader_text.configure(state="normal")
-            self.reader_status.set("Reading stopped")
+        if self.reader_cancel_event.is_set():
+            widget.configure(state="normal")
+            status_var.set("Reading stopped")
+            return
+        if not items:
+            widget.configure(state="normal")
+            status_var.set("No readable text remained after filtering symbols.")
             return
         self._reader_items = items
         self._reader_index = 0
@@ -555,8 +621,8 @@ class NarrationStudio(tk.Tk):
         if not self._reader_active or self._reader_index >= len(self._reader_items):
             self._reader_active = False
             self._reader_after = None
-            self.reader_text.configure(state="normal")
-            self.reader_status.set("Reading finished")
+            self._reader_widget.configure(state="normal")
+            self._reader_status_var.set("Reading finished")
             return
         start, end, audio_path = self._reader_items[self._reader_index]
         try:
@@ -566,12 +632,12 @@ class NarrationStudio(tk.Tk):
             self.stop_text_reader(update_status=False)
             messagebox.showerror("Text Reader", f"Could not play {audio_path.name}:\n{exc}")
             return
-        self.reader_text.tag_remove("reading", "1.0", "end")
+        self._reader_widget.tag_remove("reading", "1.0", "end")
         first = f"1.0+{start}c"
         last = f"1.0+{end}c"
-        self.reader_text.tag_add("reading", first, last)
-        self.reader_text.see(first)
-        self.reader_status.set(f"Reading section {self._reader_index + 1}/{len(self._reader_items)}")
+        self._reader_widget.tag_add("reading", first, last)
+        self._reader_widget.see(first)
+        self._reader_status_var.set(f"Reading section {self._reader_index + 1}/{len(self._reader_items)}")
         self._reader_index += 1
         self._reader_after = self.after(duration_ms + 120, self._text_reader_step)
 
@@ -588,15 +654,184 @@ class NarrationStudio(tk.Tk):
             winsound.PlaySound(None, 0)
         except RuntimeError:
             pass
-        self.reader_text.configure(state="normal")
+        if self._reader_widget is not None:
+            self._reader_widget.configure(state="normal")
         if update_status:
-            self.reader_status.set("Reading stopped")
+            (self._reader_status_var or self.reader_status).set("Reading stopped")
 
     def clear_text_reader(self):
         self.stop_text_reader(update_status=False)
         self.reader_text.delete("1.0", "end")
         self.reader_text.tag_remove("reading", "1.0", "end")
         self.reader_status.set("Paste text to begin.")
+
+    def paste_reader_text(self):
+        try:
+            value = self.clipboard_get()
+        except tk.TclError:
+            messagebox.showinfo("Text Reader", "The clipboard does not contain text.")
+            return
+        self.reader_text.insert("insert", value)
+        self.reader_text.focus_set()
+        self.reader_status.set("Clipboard text pasted")
+
+    def screen_cache_folder(self):
+        folder = assistant_root() / "cache" / "narration-studio" / "screen-reader"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def capture_screen_area(self):
+        if self.busy:
+            self.screen_status.set("Please wait for the current operation to finish.")
+            return
+        self.stop_text_reader(update_status=False)
+        self.stop_playback(update_status=False)
+        self.withdraw()
+        self.after(180, self._show_capture_overlay)
+
+    def _show_capture_overlay(self):
+        user32 = ctypes.windll.user32
+        left = int(user32.GetSystemMetrics(76))
+        top = int(user32.GetSystemMetrics(77))
+        width = int(user32.GetSystemMetrics(78))
+        height = int(user32.GetSystemMetrics(79))
+        overlay = tk.Toplevel(self)
+        overlay.overrideredirect(True)
+        overlay.geometry(f"{width}x{height}{left:+d}{top:+d}")
+        overlay.attributes("-topmost", True)
+        overlay.attributes("-alpha", 0.28)
+        overlay.configure(bg="black", cursor="crosshair")
+        canvas = tk.Canvas(overlay, bg="black", highlightthickness=0, cursor="crosshair")
+        canvas.pack(fill="both", expand=True)
+        canvas.create_text(width // 2, 35,
+                           text="Click one corner, then click the opposite corner. Press Esc to cancel.",
+                           fill="white", font=("Segoe UI", 16, "bold"), tags="instructions")
+        selection = {"start": None, "rectangle": None}
+
+        def restore():
+            if overlay.winfo_exists():
+                overlay.destroy()
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+
+        def cancel(_event=None):
+            restore()
+            self.screen_status.set("Screen capture cancelled")
+
+        def motion(event):
+            if selection["start"] is None:
+                return
+            x1, y1 = selection["start"]
+            if selection["rectangle"] is not None:
+                canvas.delete(selection["rectangle"])
+            selection["rectangle"] = canvas.create_rectangle(
+                x1 - left, y1 - top, event.x, event.y, outline="#ff4040", width=4)
+
+        def click(event):
+            point = (event.x_root, event.y_root)
+            if selection["start"] is None:
+                selection["start"] = point
+                self.screen_status.set("Select the opposite corner")
+                return
+            x1, y1 = selection["start"]
+            x2, y2 = point
+            bbox = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+            if bbox[2] - bbox[0] < 5 or bbox[3] - bbox[1] < 5:
+                selection["start"] = None
+                self.screen_status.set("Selection was too small; choose two corners again")
+                return
+            overlay.destroy()
+            self.after(160, lambda: self._finish_screen_capture(bbox))
+
+        canvas.bind("<Button-1>", click)
+        canvas.bind("<Motion>", motion)
+        overlay.bind("<Escape>", cancel)
+        overlay.focus_force()
+
+    def _finish_screen_capture(self, bbox):
+        image = None
+        error = None
+        try:
+            image = ImageGrab.grab(bbox=bbox, all_screens=True)
+        except Exception as exc:
+            error = exc
+        finally:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        if error:
+            self.screen_status.set("Screen capture failed")
+            messagebox.showerror("Screen Reader", str(error))
+        else:
+            self.set_screen_image(image)
+
+    def paste_screen_image(self):
+        try:
+            value = ImageGrab.grabclipboard()
+            if isinstance(value, Image.Image):
+                image = value.copy()
+            elif isinstance(value, list) and value:
+                with Image.open(value[0]) as opened:
+                    image = opened.convert("RGB").copy()
+            else:
+                raise ValueError("The clipboard does not contain an image.")
+            self.set_screen_image(image)
+        except Exception as exc:
+            messagebox.showinfo("Screen Reader", str(exc))
+
+    def set_screen_image(self, image):
+        destination = self.screen_cache_folder() / f"capture_{time.time_ns()}.png"
+        image.convert("RGB").save(destination, format="PNG")
+        self.screen_image_path = destination
+        self._screen_image = image.convert("RGB").copy()
+        self.resize_screen_preview()
+        self.screen_status.set("Image captured — extracting text…")
+        self.after(100, self.extract_screen_text)
+
+    def resize_screen_preview(self, _event=None):
+        if self._screen_image is None:
+            return
+        width = max(100, self.screen_preview.winfo_width() - 16)
+        height = max(100, self.screen_preview.winfo_height() - 16)
+        display = self._screen_image.copy()
+        display.thumbnail((width, height), Image.Resampling.LANCZOS)
+        self._screen_photo = ImageTk.PhotoImage(display)
+        self.screen_preview.configure(image=self._screen_photo, text="")
+
+    def extract_screen_text(self):
+        if self.busy:
+            self.screen_status.set("Please wait for the current operation to finish.")
+            return
+        if not self.screen_image_path or not self.screen_image_path.is_file():
+            messagebox.showinfo("Screen Reader", "Capture or paste an image first.")
+            return
+        self.busy = True
+        self.screen_status.set("Reading text from the image with local OCR…")
+
+        def worker():
+            text = None
+            error = None
+            try:
+                text = extract_image_text(self.screen_image_path)
+            except Exception as exc:
+                error = exc
+            self.after(0, lambda: self._screen_ocr_done(text, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _screen_ocr_done(self, text, error):
+        self.busy = False
+        if error:
+            self.screen_status.set("OCR failed")
+            messagebox.showerror("Screen Reader", str(error))
+            return
+        self.screen_text.configure(state="normal")
+        self.screen_text.delete("1.0", "end")
+        self.screen_text.insert("1.0", text)
+        self.screen_status.set("Text extracted — review it or press Read Aloud")
+        if self.screen_auto_read.get():
+            self.after(100, self.start_screen_reader)
 
     def preview_reader_voice(self, voice):
         if self.busy:
