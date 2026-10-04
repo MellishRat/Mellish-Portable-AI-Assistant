@@ -16,6 +16,7 @@ reading audio is cached under the contained assistant cache folder.
 Use "Skip punctuation / special characters" when decorative symbols should not
 be spoken. The Screen Reader tab captures a rectangle using two clicks, extracts
 its text locally, and can read the editable result aloud with highlighting.
+The capture overlay is DPI-aware on scaled and mixed-monitor Windows desktops.
 
 INSTALL
 1. Extract the complete ZIP.

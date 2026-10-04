@@ -26,6 +26,34 @@ from .reader import clean_spoken_text, text_chunks_with_ranges
 from .tts import KOKORO_VOICES, TTSEngine, combine_part
 
 
+def enable_per_monitor_dpi_awareness():
+    """Keep Tk selection coordinates aligned with physical screenshot pixels."""
+    if os.name != "nt":
+        return "not-windows"
+    try:
+        user32 = ctypes.windll.user32
+        user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetProcessDpiAwarenessContext.restype = ctypes.c_bool
+        if user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return "per-monitor-v2"
+    except Exception:
+        pass
+    try:
+        if ctypes.windll.shcore.SetProcessDpiAwareness(2) in (0, -2147024891):
+            return "per-monitor"
+    except Exception:
+        pass
+    try:
+        if ctypes.windll.user32.SetProcessDPIAware():
+            return "system"
+    except Exception:
+        pass
+    return "unchanged"
+
+
+DPI_AWARENESS_MODE = enable_per_monitor_dpi_awareness()
+
+
 class TextImportDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
