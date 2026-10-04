@@ -1,0 +1,5 @@
+numpy>=1.26,<3
+soundfile>=0.12,<1
+kokoro-onnx>=0.6.1,<1
+Pillow>=10,<13
+

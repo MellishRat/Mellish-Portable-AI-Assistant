@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "appVersion": "0.4.0",
+  "appVersion": "0.5.0",
   "portablePort": 11437,
   "python": {
     "version": "3.11.9",
@@ -20,11 +20,28 @@
   },
   "programs": [
     {
+      "id": "local-assistant",
+      "name": "Mellish Portable AI Assistant",
+      "optional": true,
+      "requiresVoice": false,
+      "requiredModels": ["small-uncensored"],
+      "description": "Unrestricted local chatbot with image analysis, coding, creative profiles, saved chats and MCP tools."
+    },
+    {
       "id": "narration-studio",
       "name": "Mellish Narration Studio",
       "optional": true,
       "requiresVoice": true,
+      "requiredModels": ["general", "vision", "ocr"],
       "description": "Books, pasted-text and screenshot reading, comics, accessible narration, local OCR, page-synchronised playback and Unity/VRChat voice-line production with 11 MCP tools."
+    },
+    {
+      "id": "dyslexic-aid",
+      "name": "Mellish Dyslexic Aid",
+      "optional": true,
+      "requiresVoice": true,
+      "requiredModels": ["ocr"],
+      "description": "Focused pasted-text and screenshot reader with Kokoro voices, highlighting, local OCR and no comic/project tools."
     }
   ],
   "models": [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import argparse
 import sys
 import urllib.request
 from pathlib import Path
@@ -36,8 +37,14 @@ def download(target: Path, url: str) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tts-only", action="store_true", help="Download Kokoro only; skip faster-whisper.")
+    arguments = parser.parse_args()
     for target, url in DOWNLOADS.items():
         download(target, url)
+    if arguments.tts_only:
+        print("Kokoro text-to-speech models are ready.")
+        return
     print("Preparing faster-whisper small.en for CPU/int8...")
     WHISPER.mkdir(parents=True, exist_ok=True)
     from faster_whisper import WhisperModel

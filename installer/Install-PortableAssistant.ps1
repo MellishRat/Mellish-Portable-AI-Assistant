@@ -6,6 +6,8 @@ param(
     [string[]]$ModelIds,
     [switch]$WithVoice,
     [switch]$WithNarrationStudio,
+    [switch]$WithDyslexicAid,
+    [switch]$WithoutLocalAssistant,
     [switch]$NoShortcuts,
     [switch]$GuiSmokeTest,
     [switch]$RuntimeSmokeTest
@@ -136,15 +138,16 @@ function Get-Recommendation {
 }
 
 function Test-InstallerInputs {
-    param([string]$Target, [object[]]$SelectedModels)
+    param([string]$Target, [object[]]$SelectedModels, [bool]$LocalAssistant, [bool]$NarrationStudio, [bool]$DyslexicAid)
     if (-not [Environment]::Is64BitOperatingSystem) {
         throw 'This release requires 64-bit Windows 10 or 11.'
     }
     if ([string]::IsNullOrWhiteSpace($Target)) { throw 'Choose an installation folder.' }
     $full = [IO.Path]::GetFullPath($Target)
     if ($full -eq [IO.Path]::GetPathRoot($full)) { throw 'Choose a folder on the drive, not the drive root itself.' }
-    if (-not $SelectedModels -or $SelectedModels.Count -eq 0) { throw 'Select at least one chat model.' }
-    if (-not ($SelectedModels | Where-Object kind -eq 'chat')) {
+    if (-not ($LocalAssistant -or $NarrationStudio -or $DyslexicAid)) { throw 'Select at least one program.' }
+    if (-not $SelectedModels -or $SelectedModels.Count -eq 0) { throw 'The selected programs require at least one local model.' }
+    if ($LocalAssistant -and -not ($SelectedModels | Where-Object kind -eq 'chat')) {
         throw 'Select at least one chat model. OCR, vision and project-search models cannot replace the main chatbot.'
     }
     foreach ($url in @($Manifest.python.url, $Manifest.ollama.url, $Manifest.ollama.checksumUrl)) {
@@ -152,6 +155,25 @@ function Test-InstallerInputs {
         if ($uri.Scheme -ne 'https') { throw "Refusing non-HTTPS download URL: $url" }
     }
     return $full.TrimEnd('\')
+}
+
+function Add-RequiredModels {
+    param([object[]]$SelectedModels, [bool]$LocalAssistant, [bool]$NarrationStudio, [bool]$DyslexicAid)
+    $result = @($SelectedModels)
+    $ids = @($result | ForEach-Object id)
+    $required = @()
+    if ($LocalAssistant -and -not ($result | Where-Object kind -eq 'chat')) { $required += 'small-uncensored' }
+    if ($NarrationStudio) { $required += @('general', 'vision', 'ocr') }
+    if ($DyslexicAid) { $required += 'ocr' }
+    foreach ($id in ($required | Select-Object -Unique)) {
+        if ($ids -notcontains $id) {
+            $model = $Manifest.models | Where-Object id -eq $id | Select-Object -First 1
+            if (-not $model) { throw "Required model is missing from manifest: $id" }
+            $result += $model
+            $ids += $id
+        }
+    }
+    return @($result)
 }
 
 function Download-VerifiedFile {
@@ -378,17 +400,37 @@ function Install-OllamaRuntime {
 }
 
 function Copy-AppPayload {
-    param([string]$Root)
+    param([string]$Root, [bool]$LocalAssistant, [bool]$NarrationStudio, [bool]$DyslexicAid)
     Add-Log 'Copying the assistant application...'
     New-Item -ItemType Directory -Force -Path $Root | Out-Null
-    Copy-Item -Path (Join-Path $PayloadRoot '*') -Destination $Root -Recurse -Force
+    $preservedPayload = Join-Path $Root 'payload'
+    $sourceFull = [IO.Path]::GetFullPath($PayloadRoot).TrimEnd('\')
+    $preservedFull = [IO.Path]::GetFullPath($preservedPayload).TrimEnd('\')
+    if ($sourceFull -ne $preservedFull) {
+        New-Item -ItemType Directory -Force -Path $preservedPayload | Out-Null
+        Copy-Item -Path (Join-Path $PayloadRoot '*') -Destination $preservedPayload -Recurse -Force
+    }
+    Get-ChildItem -LiteralPath $PayloadRoot -Force | Where-Object {
+        $_.Name -ne 'apps' -and ($LocalAssistant -or $_.Name -ne 'QwenChat.py')
+    } | Copy-Item -Destination $Root -Recurse -Force
+    $targetApps = Join-Path $Root 'apps'
+    New-Item -ItemType Directory -Force -Path $targetApps | Out-Null
+    if ($NarrationStudio) {
+        Copy-Item -LiteralPath (Join-Path $PayloadRoot 'apps\narration-studio') -Destination $targetApps -Recurse -Force
+    }
+    if ($DyslexicAid) {
+        Copy-Item -LiteralPath (Join-Path $PayloadRoot 'apps\dyslexic-aid') -Destination $targetApps -Recurse -Force
+    }
     $targetInstaller = Join-Path $Root 'installer'
     New-Item -ItemType Directory -Force -Path $targetInstaller | Out-Null
-    Copy-Item -Path (Join-Path $ScriptRoot '*') -Destination $targetInstaller -Recurse -Force
+    if ([IO.Path]::GetFullPath($ScriptRoot).TrimEnd('\') -ne [IO.Path]::GetFullPath($targetInstaller).TrimEnd('\')) {
+        Copy-Item -Path (Join-Path $ScriptRoot '*') -Destination $targetInstaller -Recurse -Force
+    }
     $guide = Join-Path $RepoRoot 'USER GUIDE.html'
     if (Test-Path -LiteralPath $guide) { Copy-Item -LiteralPath $guide -Destination $Root -Force }
     $docsSource = Join-Path $RepoRoot 'docs'
-    if (Test-Path -LiteralPath $docsSource) {
+    if ((Test-Path -LiteralPath $docsSource) -and
+        [IO.Path]::GetFullPath($docsSource).TrimEnd('\') -ne [IO.Path]::GetFullPath((Join-Path $Root 'docs')).TrimEnd('\')) {
         $targetDocs = Join-Path $Root 'docs'
         New-Item -ItemType Directory -Force -Path $targetDocs | Out-Null
         Copy-Item -Path (Join-Path $docsSource '*') -Destination $targetDocs -Recurse -Force
@@ -396,7 +438,7 @@ function Copy-AppPayload {
 }
 
 function Write-LaunchFiles {
-    param([string]$Root, [int]$Port)
+    param([string]$Root, [int]$Port, [bool]$LocalAssistant, [bool]$NarrationStudio, [bool]$DyslexicAid)
     $start = @"
 @echo off
 setlocal
@@ -449,14 +491,21 @@ set "MELLISH_OLLAMA_HOST=127.0.0.1:$Port"
 "%~dp0runtime\python\python.exe" "%~dp0tools\diagnostics.py"
 pause
 "@
-    Set-Content -LiteralPath (Join-Path $Root 'Start Assistant.bat') -Value $start -Encoding ASCII
-    Set-Content -LiteralPath (Join-Path $Root 'Start Assistant (Console).bat') -Value $console -Encoding ASCII
+    if ($LocalAssistant) {
+        Set-Content -LiteralPath (Join-Path $Root 'Start Assistant.bat') -Value $start -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $Root 'Start Assistant (Console).bat') -Value $console -Encoding ASCII
+    }
+    $narrationLauncher = "@echo off`r`ncall `"%~dp0apps\narration-studio\Start Narration Studio.cmd`"`r`n"
+    $dyslexicLauncher = "@echo off`r`ncall `"%~dp0apps\dyslexic-aid\Start Dyslexic Aid.cmd`"`r`n"
+    if ($NarrationStudio) { Set-Content -LiteralPath (Join-Path $Root 'Start Narration Studio.bat') -Value $narrationLauncher -Encoding ASCII }
+    if ($DyslexicAid) { Set-Content -LiteralPath (Join-Path $Root 'Start Dyslexic Aid.bat') -Value $dyslexicLauncher -Encoding ASCII }
     Set-Content -LiteralPath (Join-Path $Root 'Repair or Add Models.bat') -Value $repair -Encoding ASCII
     Set-Content -LiteralPath (Join-Path $Root 'Run Diagnostics.bat') -Value $diagnostics -Encoding ASCII
 }
 
 function Write-InstallConfiguration {
-    param([string]$Root, [object[]]$SelectedModels, [bool]$Voice, [bool]$NarrationStudio, $Hardware)
+    param([string]$Root, [object[]]$SelectedModels, [bool]$Voice, [bool]$LocalAssistant,
+          [bool]$NarrationStudio, [bool]$DyslexicAid, $Hardware)
     $chatModels = @($SelectedModels | Where-Object kind -eq 'chat')
     $preferred = @('general', 'small-uncensored', 'bonsai-small', 'creative', 'coder')
     $default = $null
@@ -464,11 +513,11 @@ function Write-InstallConfiguration {
         $default = $chatModels | Where-Object id -eq $id | Select-Object -First 1
         if ($default) { break }
     }
-    if (-not $default) { $default = $chatModels[0] }
+    if (-not $default -and $chatModels.Count) { $default = $chatModels[0] }
     $configDir = Join-Path $Root 'config'
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
     $settingsPath = Join-Path $configDir 'settings.json'
-    if (-not (Test-Path -LiteralPath $settingsPath)) {
+    if ($LocalAssistant -and -not (Test-Path -LiteralPath $settingsPath)) {
         @{
             model = $default.ollama
             assistant_profile = 'Custom'
@@ -479,16 +528,29 @@ function Write-InstallConfiguration {
             tts_enabled = $false
         } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding UTF8
     }
+    $previousManifest = $null
+    $manifestPath = Join-Path $configDir 'install-manifest.json'
+    if (Test-Path -LiteralPath $manifestPath) {
+        try { $previousManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json } catch {}
+    }
+    $previousModels = if ($null -ne $previousManifest -and $null -ne $previousManifest.PSObject.Properties['models']) { @($previousManifest.models) } else { @() }
+    $allModels = @(@($previousModels) + @($SelectedModels) | Group-Object id | ForEach-Object { $_.Group[-1] })
+    $hasLocalAssistant = $LocalAssistant -or (Test-Path -LiteralPath (Join-Path $Root 'QwenChat.py'))
+    $hasNarrationStudio = $NarrationStudio -or (Test-Path -LiteralPath (Join-Path $Root 'apps\narration-studio\run_app.py'))
+    $hasDyslexicAid = $DyslexicAid -or (Test-Path -LiteralPath (Join-Path $Root 'apps\dyslexic-aid\run_app.py'))
+    $hadVoice = $null -ne $previousManifest -and $null -ne $previousManifest.PSObject.Properties['voiceInstalled'] -and [bool]$previousManifest.voiceInstalled
     @{
         schemaVersion = 1
         installedAt = (Get-Date).ToString('o')
         appVersion = $Manifest.appVersion
         portablePort = $Manifest.portablePort
-        voiceInstalled = $Voice
-        narrationStudioInstalled = $NarrationStudio
+        voiceInstalled = ($Voice -or $hadVoice)
+        localAssistantInstalled = $hasLocalAssistant
+        narrationStudioInstalled = $hasNarrationStudio
+        dyslexicAidInstalled = $hasDyslexicAid
         hardware = $Hardware
-        models = @($SelectedModels | Select-Object id, name, ollama, sizeGB, kind, uncensoredClaim)
-    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $configDir 'install-manifest.json') -Encoding UTF8
+        models = @($allModels | Select-Object id, name, ollama, sizeGB, kind, uncensoredClaim)
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 }
 
 function Start-PortableOllama {
@@ -518,50 +580,52 @@ function Start-PortableOllama {
 }
 
 function Add-Shortcuts {
-    param([string]$Root, [bool]$DesktopShortcut)
+    param([string]$Root, [bool]$DesktopShortcut, [bool]$LocalAssistant, [bool]$NarrationStudio, [bool]$DyslexicAid)
     if (-not $DesktopShortcut) { return }
     $shell = New-Object -ComObject WScript.Shell
-    $targets = @(
-        (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mellish Portable AI Assistant.lnk'),
-        (Join-Path ([Environment]::GetFolderPath('Programs')) 'Mellish Portable AI Assistant.lnk')
-    )
-    foreach ($shortcutPath in $targets) {
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = Join-Path $Root 'Start Assistant.bat'
-        $shortcut.WorkingDirectory = $Root
-        $shortcut.Description = 'Launch the private local AI assistant'
-        $shortcut.Save()
+    $programs = @()
+    if ($LocalAssistant) { $programs += [pscustomobject]@{ Name='Mellish Portable AI Assistant'; Target='Start Assistant.bat'; Description='Launch the private local AI assistant' } }
+    if ($NarrationStudio) { $programs += [pscustomobject]@{ Name='Mellish Narration Studio'; Target='Start Narration Studio.bat'; Description='Launch local narration and voice production' } }
+    if ($DyslexicAid) { $programs += [pscustomobject]@{ Name='Mellish Dyslexic Aid'; Target='Start Dyslexic Aid.bat'; Description='Launch the local text and screenshot reader' } }
+    foreach ($program in $programs) {
+        foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
+            $shortcut = $shell.CreateShortcut((Join-Path $folder ($program.Name + '.lnk')))
+            $shortcut.TargetPath = Join-Path $Root $program.Target
+            $shortcut.WorkingDirectory = $Root
+            $shortcut.Description = $program.Description
+            $shortcut.Save()
+        }
     }
 }
 
 function Invoke-Installation {
-    param([string]$Target, [object[]]$SelectedModels, [bool]$Voice, [bool]$NarrationStudio, [bool]$Shortcuts, $Hardware)
-    $Target = Test-InstallerInputs $Target $SelectedModels
-    if ($NarrationStudio) { $Voice = $true }
+    param([string]$Target, [object[]]$SelectedModels, [bool]$Voice, [bool]$LocalAssistant,
+          [bool]$NarrationStudio, [bool]$DyslexicAid, [bool]$Shortcuts, $Hardware)
+    $SelectedModels = @(Add-RequiredModels $SelectedModels $LocalAssistant $NarrationStudio $DyslexicAid)
+    $Target = Test-InstallerInputs $Target $SelectedModels $LocalAssistant $NarrationStudio $DyslexicAid
+    if ($NarrationStudio -or $DyslexicAid) { $Voice = $true }
     if (-not $DryRun) {
         Save-InstallPath $Target
         Set-PortableProcessEnvironment $Target
     }
-    $requiredGB = 3.5 + (($SelectedModels | Measure-Object sizeGB -Sum).Sum) + $(if ($Voice) { 1.2 } else { 0.2 }) + $(if ($NarrationStudio) { 0.1 } else { 0 })
+    $requiredGB = 3.5 + (($SelectedModels | Measure-Object sizeGB -Sum).Sum) + $(if ($Voice) { 1.2 } else { 0.2 }) + $(if ($NarrationStudio) { 0.1 } else { 0 }) + $(if ($DyslexicAid) { 0.1 } else { 0 })
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($Target))
     if (($drive.AvailableFreeSpace / 1GB) -lt ($requiredGB + 3)) {
         throw ("Not enough free space. Selected components need about {0:N1} GB plus working space; {1:N1} GB is free." -f $requiredGB, ($drive.AvailableFreeSpace / 1GB))
     }
     if ($DryRun) {
-        [pscustomobject]@{ InstallPath = $Target; RequiredGB = [Math]::Round($requiredGB, 1); Hardware = $Hardware; Models = $SelectedModels; Voice = $Voice; NarrationStudio = $NarrationStudio } | ConvertTo-Json -Depth 6
+        [pscustomobject]@{ InstallPath = $Target; RequiredGB = [Math]::Round($requiredGB, 1); Hardware = $Hardware; Models = $SelectedModels; Voice = $Voice; LocalAssistant = $LocalAssistant; NarrationStudio = $NarrationStudio; DyslexicAid = $DyslexicAid } | ConvertTo-Json -Depth 6
         return
     }
     $downloads = Join-Path $Target 'downloads'
     New-Item -ItemType Directory -Force -Path $downloads | Out-Null
-    Copy-AppPayload $Target
-    $narrationPath = Join-Path $Target 'apps\narration-studio'
-    if (-not $NarrationStudio -and (Test-Path -LiteralPath $narrationPath)) {
-        Remove-Item -LiteralPath $narrationPath -Recurse -Force
-    }
-    Write-LaunchFiles $Target ([int]$Manifest.portablePort)
+    Copy-AppPayload $Target $LocalAssistant $NarrationStudio $DyslexicAid
+    Write-LaunchFiles $Target ([int]$Manifest.portablePort) $LocalAssistant $NarrationStudio $DyslexicAid
     $python = Install-PythonRuntime $Target $downloads
-    Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-core.txt')) 'Installing core Python packages...' $Target
-    if ($Voice) {
+    if ($LocalAssistant -or $NarrationStudio) {
+        Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-core.txt')) 'Installing core Python packages...' $Target
+    }
+    if ($Voice -and ($LocalAssistant -or $NarrationStudio)) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-voice.txt')) 'Installing local voice packages...' $Target
         Invoke-ProcessChecked $python @((Join-Path $Target 'tools\bootstrap_voice_models.py')) 'Downloading local speech models...' $Target
     }
@@ -570,6 +634,14 @@ function Invoke-Installation {
         Invoke-ProcessChecked $python @('-m', 'py_compile', (Join-Path $Target 'apps\narration-studio\run_app.py'), (Join-Path $Target 'apps\narration-studio\narration_studio\app.py'), (Join-Path $Target 'apps\narration-studio\narration_studio\mcp_server.py')) 'Checking Narration Studio...' $Target
         $mcpConfig = Join-Path $Target 'config\mcp_servers.json'
         Invoke-ProcessChecked $python @((Join-Path $Target 'apps\narration-studio\narration_studio\merge_mcp.py'), '--config', $mcpConfig) 'Registering Narration Studio MCP tools...' $Target
+    }
+    if ($DyslexicAid) {
+        if (-not ($LocalAssistant -or $NarrationStudio)) {
+            Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'apps\dyslexic-aid\requirements.txt')) 'Installing Dyslexic Aid voice packages...' $Target
+            Invoke-ProcessChecked $python @((Join-Path $Target 'tools\bootstrap_voice_models.py'), '--tts-only') 'Downloading Kokoro voice files...' $Target
+        }
+        Invoke-ProcessChecked $python @('-m', 'py_compile', (Join-Path $Target 'apps\dyslexic-aid\run_app.py'), (Join-Path $Target 'apps\dyslexic-aid\dyslexic_aid\app.py'), (Join-Path $Target 'apps\dyslexic-aid\dyslexic_aid\ocr.py')) 'Checking Dyslexic Aid...' $Target
+        Invoke-ProcessChecked $python @('-s', '-c', 'import tkinter, numpy, soundfile, PIL, kokoro_onnx; print("DYSLEXIC_AID_DEPENDENCIES_OK")') 'Verifying Dyslexic Aid dependencies...' $Target
     }
     $ollama = Install-OllamaRuntime $Target $downloads
     $server = Start-PortableOllama $Target $ollama ([int]$Manifest.portablePort)
@@ -580,14 +652,22 @@ function Invoke-Installation {
             Set-InstallerStatus ("Downloading model {0} of {1}: {2}" -f $index, $SelectedModels.Count, $model.name) ([int](100 * ($index - 1) / $SelectedModels.Count))
             Invoke-ProcessChecked $ollama @('pull', $model.ollama) "Downloading $($model.name)..." $Target
         }
+        try {
+            $installedNames = @((Invoke-RestMethod -Uri "http://127.0.0.1:$($Manifest.portablePort)/api/tags" -TimeoutSec 10).models | ForEach-Object name)
+            $knownInstalled = @($Manifest.models | Where-Object { $installedNames -contains $_.ollama })
+            $SelectedModels = @(@($SelectedModels) + @($knownInstalled) | Group-Object id | ForEach-Object { $_.Group[-1] })
+            Add-Log "Detected $($knownInstalled.Count) known model(s) already present in the portable Ollama store."
+        } catch {
+            Add-Log "Could not reconcile the installed model catalogue: $($_.Exception.Message)"
+        }
     } finally {
         if ($server -and -not $server.HasExited) {
             Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
             Wait-Process -Id $server.Id -Timeout 10 -ErrorAction SilentlyContinue
         }
     }
-    Write-InstallConfiguration $Target $SelectedModels $Voice $NarrationStudio $Hardware
-    Add-Shortcuts $Target $Shortcuts
+    Write-InstallConfiguration $Target $SelectedModels $Voice $LocalAssistant $NarrationStudio $DyslexicAid $Hardware
+    Add-Shortcuts $Target $Shortcuts $LocalAssistant $NarrationStudio $DyslexicAid
     Remove-Item -LiteralPath $downloads -Recurse -Force -ErrorAction SilentlyContinue
     Set-InstallerStatus 'Installation complete.' 100
     Add-Log "Installation complete: $Target"
@@ -615,7 +695,8 @@ if ($NoGui) {
     }
     if (-not $ModelIds -or $ModelIds.Count -eq 0) { $ModelIds = $recommendedIds }
     $selected = @($Manifest.models | Where-Object { $ModelIds -contains $_.id })
-    Invoke-Installation $InstallPath $selected ([bool]$WithVoice) ([bool]$WithNarrationStudio) (-not $NoShortcuts) $hardware
+    $installLocalAssistant = -not [bool]$WithoutLocalAssistant
+    Invoke-Installation $InstallPath $selected ([bool]$WithVoice) $installLocalAssistant ([bool]$WithNarrationStudio) ([bool]$WithDyslexicAid) (-not $NoShortcuts) $hardware
     exit 0
 }
 
@@ -625,8 +706,8 @@ Add-Type -AssemblyName System.Drawing
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Mellish Portable AI Assistant Setup'
-$form.Size = New-Object Drawing.Size(860, 820)
-$form.MinimumSize = New-Object Drawing.Size(760, 700)
+$form.Size = New-Object Drawing.Size(860, 920)
+$form.MinimumSize = New-Object Drawing.Size(760, 800)
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 
@@ -682,6 +763,13 @@ $modelsLabel.AutoSize = $true
 $modelsLabel.Location = New-Object Drawing.Point(20, 193)
 $form.Controls.Add($modelsLabel)
 
+$existingManifest = $null
+$existingManifestPath = Join-Path $folderText.Text 'config\install-manifest.json'
+if (Test-Path -LiteralPath $existingManifestPath) {
+    try { $existingManifest = Get-Content -LiteralPath $existingManifestPath -Raw | ConvertFrom-Json } catch {}
+}
+$existingModelIds = if ($null -ne $existingManifest -and $null -ne $existingManifest.PSObject.Properties['models']) { @($existingManifest.models | ForEach-Object id) } else { @() }
+
 $modelList = New-Object System.Windows.Forms.CheckedListBox
 $modelList.CheckOnClick = $true
 $modelList.Location = New-Object Drawing.Point(20, 216)
@@ -690,7 +778,7 @@ $modelList.Anchor = 'Top,Left,Right'
 for ($i = 0; $i -lt $Manifest.models.Count; $i++) {
     $model = $Manifest.models[$i]
     [void]$modelList.Items.Add(("{0}  [{1:N2} GB]`r`n    {2}" -f $model.name, $model.sizeGB, $model.description))
-    if ($recommendedIds -contains $model.id) { $modelList.SetItemChecked($i, $true) }
+    if (($recommendedIds -contains $model.id) -or ($existingModelIds -contains $model.id)) { $modelList.SetItemChecked($i, $true) }
 }
 $form.Controls.Add($modelList)
 
@@ -715,43 +803,94 @@ $allButton.Size = New-Object Drawing.Size(95, 29)
 $allButton.Add_Click({ for ($i=0;$i -lt $Manifest.models.Count;$i++){ $modelList.SetItemChecked($i, $true) } })
 $form.Controls.Add($allButton)
 
-$voiceCheck = New-Object System.Windows.Forms.CheckBox
-$voiceCheck.Text = 'Install offline speech-to-text and text-to-speech (about 1.2 GB)'
-$voiceCheck.AutoSize = $true
-$voiceCheck.Checked = ($hardware.RamGB -ge 16)
-$voiceCheck.Location = New-Object Drawing.Point(365, 475)
-$form.Controls.Add($voiceCheck)
+$assistantCheck = New-Object System.Windows.Forms.CheckBox
+$assistantCheck.Text = 'Install Local AI Assistant (chat, vision, OCR and optional MCP tools)'
+$assistantCheck.AutoSize = $true
+$assistantCheck.Checked = if ($null -ne $existingManifest -and $null -ne $existingManifest.PSObject.Properties['localAssistantInstalled']) { [bool]$existingManifest.localAssistantInstalled } else { $true }
+$assistantCheck.Location = New-Object Drawing.Point(20, 510)
+$form.Controls.Add($assistantCheck)
 
 $narrationCheck = New-Object System.Windows.Forms.CheckBox
 $narrationCheck.Text = 'Install Narration Studio (books, comics and Unity/VRChat voice lines)'
 $narrationCheck.AutoSize = $true
-$narrationCheck.Checked = ($hardware.RamGB -ge 16)
-$narrationCheck.Location = New-Object Drawing.Point(365, 502)
-$narrationCheck.Add_CheckedChanged({ if ($narrationCheck.Checked) { $voiceCheck.Checked = $true } })
+$narrationCheck.Checked = if ($null -ne $existingManifest -and $null -ne $existingManifest.PSObject.Properties['narrationStudioInstalled']) { [bool]$existingManifest.narrationStudioInstalled } else { Test-Path -LiteralPath (Join-Path $folderText.Text 'apps\narration-studio') }
+$narrationCheck.Location = New-Object Drawing.Point(20, 537)
 $form.Controls.Add($narrationCheck)
+
+$dyslexicCheck = New-Object System.Windows.Forms.CheckBox
+$dyslexicCheck.Text = 'Install Dyslexic Aid (focused text and screenshot reader)'
+$dyslexicCheck.AutoSize = $true
+$dyslexicCheck.Checked = if ($null -ne $existingManifest -and $null -ne $existingManifest.PSObject.Properties['dyslexicAidInstalled']) { [bool]$existingManifest.dyslexicAidInstalled } else { Test-Path -LiteralPath (Join-Path $folderText.Text 'apps\dyslexic-aid') }
+$dyslexicCheck.Location = New-Object Drawing.Point(20, 564)
+$form.Controls.Add($dyslexicCheck)
+
+$voiceCheck = New-Object System.Windows.Forms.CheckBox
+$voiceCheck.Text = 'Install offline speech-to-text and text-to-speech (about 1.2 GB)'
+$voiceCheck.AutoSize = $true
+$voiceCheck.Checked = if ($null -ne $existingManifest -and $null -ne $existingManifest.PSObject.Properties['voiceInstalled']) { [bool]$existingManifest.voiceInstalled } else { ($hardware.RamGB -ge 16) }
+$voiceCheck.Location = New-Object Drawing.Point(20, 591)
+$form.Controls.Add($voiceCheck)
+
+function Set-ModelCheckedById {
+    param([string[]]$Ids)
+    for ($i = 0; $i -lt $Manifest.models.Count; $i++) {
+        if ($Ids -contains $Manifest.models[$i].id) { $modelList.SetItemChecked($i, $true) }
+    }
+}
+$narrationCheck.Add_CheckedChanged({
+    if ($narrationCheck.Checked) {
+        $voiceCheck.Checked = $true
+        Set-ModelCheckedById @('general','vision','ocr')
+    }
+})
+$dyslexicCheck.Add_CheckedChanged({
+    if ($dyslexicCheck.Checked) {
+        $voiceCheck.Checked = $true
+        Set-ModelCheckedById @('ocr')
+    }
+})
+$assistantCheck.Add_CheckedChanged({
+    if ($assistantCheck.Checked) { Set-ModelCheckedById $recommendedIds }
+})
+if ($narrationCheck.Checked) { Set-ModelCheckedById @('general','vision','ocr'); $voiceCheck.Checked = $true }
+if ($dyslexicCheck.Checked) { Set-ModelCheckedById @('ocr'); $voiceCheck.Checked = $true }
+
+$browse.Add_Click({
+    $chosenRoot = $folderText.Text
+    $chosenManifest = $null
+    $chosenManifestPath = Join-Path $chosenRoot 'config\install-manifest.json'
+    if (Test-Path -LiteralPath $chosenManifestPath) {
+        try { $chosenManifest = Get-Content -LiteralPath $chosenManifestPath -Raw | ConvertFrom-Json } catch {}
+    }
+    $assistantCheck.Checked = if ($null -ne $chosenManifest -and $null -ne $chosenManifest.PSObject.Properties['localAssistantInstalled']) { [bool]$chosenManifest.localAssistantInstalled } else { Test-Path -LiteralPath (Join-Path $chosenRoot 'QwenChat.py') }
+    $narrationCheck.Checked = if ($null -ne $chosenManifest -and $null -ne $chosenManifest.PSObject.Properties['narrationStudioInstalled']) { [bool]$chosenManifest.narrationStudioInstalled } else { Test-Path -LiteralPath (Join-Path $chosenRoot 'apps\narration-studio\run_app.py') }
+    $dyslexicCheck.Checked = if ($null -ne $chosenManifest -and $null -ne $chosenManifest.PSObject.Properties['dyslexicAidInstalled']) { [bool]$chosenManifest.dyslexicAidInstalled } else { Test-Path -LiteralPath (Join-Path $chosenRoot 'apps\dyslexic-aid\run_app.py') }
+    if ($null -ne $chosenManifest -and $null -ne $chosenManifest.PSObject.Properties['voiceInstalled']) { $voiceCheck.Checked = [bool]$chosenManifest.voiceInstalled }
+    if ($null -ne $chosenManifest -and $null -ne $chosenManifest.PSObject.Properties['models']) { Set-ModelCheckedById @($chosenManifest.models | ForEach-Object id) }
+})
 
 $shortcutCheck = New-Object System.Windows.Forms.CheckBox
 $shortcutCheck.Text = 'Create Desktop and Start Menu shortcuts'
 $shortcutCheck.AutoSize = $true
 $shortcutCheck.Checked = $true
-$shortcutCheck.Location = New-Object Drawing.Point(20, 525)
+$shortcutCheck.Location = New-Object Drawing.Point(20, 618)
 $form.Controls.Add($shortcutCheck)
 
 $notice = New-Object System.Windows.Forms.Label
 $notice.Text = 'Models labelled unrestricted/abliterated use community publisher claims, not a guarantee. The installer downloads model weights from their original hosts and keeps all runtime files, models, caches, chats and settings inside the selected folder.'
-$notice.Location = New-Object Drawing.Point(20, 555)
+$notice.Location = New-Object Drawing.Point(20, 650)
 $notice.Size = New-Object Drawing.Size(800, 43)
 $notice.Anchor = 'Top,Left,Right'
 $form.Controls.Add($notice)
 
 $script:StatusLabel = New-Object System.Windows.Forms.Label
 $script:StatusLabel.Text = 'Ready to install.'
-$script:StatusLabel.Location = New-Object Drawing.Point(20, 605)
+$script:StatusLabel.Location = New-Object Drawing.Point(20, 700)
 $script:StatusLabel.Size = New-Object Drawing.Size(800, 20)
 $form.Controls.Add($script:StatusLabel)
 
 $script:ProgressBar = New-Object System.Windows.Forms.ProgressBar
-$script:ProgressBar.Location = New-Object Drawing.Point(20, 628)
+$script:ProgressBar.Location = New-Object Drawing.Point(20, 723)
 $script:ProgressBar.Size = New-Object Drawing.Size(800, 18)
 $script:ProgressBar.Anchor = 'Top,Left,Right'
 $form.Controls.Add($script:ProgressBar)
@@ -760,7 +899,7 @@ $script:LogControl = New-Object System.Windows.Forms.TextBox
 $script:LogControl.ReadOnly = $true
 $script:LogControl.Multiline = $true
 $script:LogControl.ScrollBars = 'Vertical'
-$script:LogControl.Location = New-Object Drawing.Point(20, 655)
+$script:LogControl.Location = New-Object Drawing.Point(20, 750)
 $script:LogControl.Size = New-Object Drawing.Size(680, 105)
 $script:LogControl.Anchor = 'Top,Bottom,Left,Right'
 $form.Controls.Add($script:LogControl)
@@ -768,14 +907,14 @@ $form.Controls.Add($script:LogControl)
 $installButton = New-Object System.Windows.Forms.Button
 $installButton.Text = 'Install'
 $installButton.Font = New-Object Drawing.Font('Segoe UI', 10, [Drawing.FontStyle]::Bold)
-$installButton.Location = New-Object Drawing.Point(715, 655)
+$installButton.Location = New-Object Drawing.Point(715, 750)
 $installButton.Size = New-Object Drawing.Size(105, 48)
 $installButton.Anchor = 'Top,Right'
 $form.Controls.Add($installButton)
 
 $closeButton = New-Object System.Windows.Forms.Button
 $closeButton.Text = 'Close'
-$closeButton.Location = New-Object Drawing.Point(715, 712)
+$closeButton.Location = New-Object Drawing.Point(715, 807)
 $closeButton.Size = New-Object Drawing.Size(105, 35)
 $closeButton.Anchor = 'Top,Right'
 $closeButton.Add_Click({ $form.Close() })
@@ -790,7 +929,7 @@ $installButton.Add_Click({
         $installButton.Enabled = $false
         $browse.Enabled = $false
         $modelList.Enabled = $false
-        Invoke-Installation $folderText.Text $selected $voiceCheck.Checked $narrationCheck.Checked $shortcutCheck.Checked $hardware
+        Invoke-Installation $folderText.Text $selected $voiceCheck.Checked $assistantCheck.Checked $narrationCheck.Checked $dyslexicCheck.Checked $shortcutCheck.Checked $hardware
         [System.Windows.Forms.MessageBox]::Show("Installation completed successfully.`r`n`r`n$($folderText.Text)", 'Mellish Portable AI Assistant', 'OK', 'Information') | Out-Null
     } catch {
         Add-Log "ERROR: $($_.Exception.Message)"

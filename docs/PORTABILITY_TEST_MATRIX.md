@@ -18,6 +18,11 @@ machines or snapshots:
 - Partial first destination followed by a different destination, including one
   with spaces.
 - Repeated `Repair or Add Models.bat` runs from the installed folder.
+- Add each of the three programs separately and together. Reopening setup should
+  detect the existing choices, and leaving an installed program unticked must
+  not remove its files, settings, projects or generated audio.
+- Confirm existing Ollama model blobs, Kokoro files, faster-whisper cache,
+  Python packages and Hugging Face caches are reused rather than redownloaded.
 - Compare PATH, Python launcher registrations, Python uninstall entries and
   `.py` file associations before and after installation. Mellish must add none.
 - Install both core and optional voice requirements with the selected runtime,

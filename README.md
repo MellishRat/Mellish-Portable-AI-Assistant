@@ -12,15 +12,20 @@ runtime, model and optional voice component into that folder.
 2. Extract the ZIP completely.
 3. Double-click **Install Portable Assistant.bat**.
 4. Choose a folder on a drive with enough free space.
-5. Keep the recommended models or change the selection, then click **Install**.
-6. Launch with the generated **Start Assistant.bat** or Desktop shortcut.
+5. Choose one or more programs: Local AI Assistant, Narration Studio, or the
+   focused Dyslexic Aid text/screenshot reader.
+6. Keep the recommended models or change the selection, then click **Install**.
+7. Launch with the generated program batch file or Desktop shortcut.
 
 Open **USER GUIDE.html** for a visual model-selection guide, model-routing
 explanations, voice and Project Knowledge instructions, and the current MCP/tool
 limitations. The installed app also has a **User Guide** button.
 
 The installer can be run again through **Repair or Add Models.bat** to repair
-dependencies or add another model. Interrupted Ollama model downloads resume.
+dependencies, add a program, or add another model. It reuses a verified
+contained Python runtime, installed packages, Ollama runtime, models and voice
+caches. Unticking a program does not uninstall it or delete its data, and
+interrupted Ollama model downloads resume.
 
 ## What the bootstrap handles
 
@@ -37,6 +42,8 @@ dependencies or add another model. Interrupted Ollama model downloads resume.
 - Optional faster-whisper speech recognition and Kokoro text-to-speech.
 - Optional Mellish Narration Studio for accessible books/comics, editable
   multi-speaker narration, audiobook parts, and Unity/VRChat voice-line exports.
+- Optional Mellish Dyslexic Aid for large pasted text and two-click screenshot
+  reading, sentence highlighting, OCR and selectable offline Kokoro voices.
 - Eleven Narration Studio MCP tools for project inspection, speaker correction,
   cast voices, generation, part combination and export.
 - Dedicated loopback port `11437`, avoiding conflicts with a normal Ollama app.

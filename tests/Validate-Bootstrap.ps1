@@ -46,6 +46,13 @@ foreach ($path in $dryRunPaths) {
     & $powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer -NoGui -DryRun -InstallPath $path -ModelIds small-uncensored | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Dry run failed for destination: $path" }
 }
+$dyslexicDryRun = & $powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer -NoGui -DryRun -InstallPath 'C:\Mellish Dyslexic Aid Test' -WithoutLocalAssistant -WithDyslexicAid -ModelIds ocr | ConvertFrom-Json
+if (-not $dyslexicDryRun.DyslexicAid -or $dyslexicDryRun.LocalAssistant -or -not $dyslexicDryRun.Voice) {
+    throw 'Dyslexic Aid-only dry run did not select the expected program and voice components.'
+}
+$dyslexicPayload = Join-Path $root 'payload\apps\dyslexic-aid\run_app.py'
+if (-not (Test-Path -LiteralPath $dyslexicPayload)) { throw 'Dyslexic Aid payload is missing.' }
+if (-not $source.Contains("'--tts-only'")) { throw 'Dyslexic Aid-only installation is not using the focused TTS dependency path.' }
 
 if ($IncludeRuntime) {
     & $powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer -RuntimeSmokeTest -InstallPath $RuntimeTestRoot

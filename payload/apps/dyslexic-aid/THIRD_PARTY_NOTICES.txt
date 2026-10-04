@@ -1,0 +1,8 @@
+THIRD-PARTY COMPONENTS (DOWNLOADED BY THE MELLISH BOOTSTRAP)
+
+Kokoro ONNX and voice data: https://github.com/thewh1teagle/kokoro-onnx
+Ollama: https://github.com/ollama/ollama
+GLM-OCR and Qwen models remain under their publisher model licences.
+NumPy, SoundFile and Pillow remain under their respective upstream licences.
+This source package does not redistribute model weights or generated voice data.
+

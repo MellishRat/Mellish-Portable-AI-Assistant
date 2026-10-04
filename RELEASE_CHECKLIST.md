@@ -14,6 +14,8 @@
 - [ ] Confirm core and optional voice requirements install with `python.exe -m pip`.
 - [ ] Confirm the optional Narration Studio checkbox forces voice support, installs document parsers, starts from `apps\narration-studio`, and registers exactly 11 MCP tools.
 - [ ] Confirm Narration Studio preserves unrelated MCP entries and writes projects/audio only under the selected assistant or user-selected project folder.
+- [ ] Confirm Dyslexic Aid can be selected by itself, forces voice/OCR support, launches from `apps\dyslexic-aid`, reads pasted text, captures the full DPI-aware selected screen area, and highlights OCR sentences during playback.
+- [ ] Run repair over an existing installation and confirm Python, Ollama, installed models, Kokoro, Whisper and caches are reused; unselected existing programs and their data must remain untouched.
 - [ ] Confirm the MCP client discovers and calls the mock stdio server.
 - [ ] Confirm Unity tools appear only while its Unity package/server is running.
 - [ ] Confirm every MCP call asks for approval and declined calls do not execute.
