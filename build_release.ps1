@@ -40,6 +40,7 @@ $required = @(
     'payload\apps\narration-studio\narration_studio\merge_mcp.py',
     'payload\apps\narration-studio\narration_studio\paths.py',
     'payload\apps\narration-studio\narration_studio\project.py',
+    'payload\apps\narration-studio\narration_studio\reader.py',
     'payload\apps\narration-studio\narration_studio\tts.py',
     'docs\MODELS.md',
     'docs\PORTABILITY_TEST_MATRIX.md',

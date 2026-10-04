@@ -9,6 +9,10 @@ The Comic Reader tab displays an imported page while playing its generated
 voice lines in order. Double-click a Speaker cell in the Script tab, or use
 the Speaker drop-down below the table, to correct a character assignment.
 
+The Text Reader tab reads pasted text without requiring a project. Select a
+voice card, use Preview to hear its sample, and press Read Aloud. Preview and
+reading audio is cached under the contained assistant cache folder.
+
 INSTALL
 1. Extract the complete ZIP.
 2. Run "Install Narration Studio.cmd".

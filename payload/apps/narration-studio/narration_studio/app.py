@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from .exporters import export_dialogue, export_srt
 from .importers import IMAGE_EXTENSIONS, copy_source, read_document
 from .paths import assistant_root, kokoro_files, ollama_url, projects_root
 from .project import NarrationProject, new_line, safe_slug
+from .reader import text_chunks_with_ranges
 from .tts import KOKORO_VOICES, TTSEngine, combine_part
 
 
@@ -71,6 +73,11 @@ class NarrationStudio(tk.Tk):
         self._playback_index = 0
         self._comic_image = None
         self._comic_photo = None
+        self.reader_cancel_event = threading.Event()
+        self._reader_after = None
+        self._reader_active = False
+        self._reader_items = []
+        self._reader_index = 0
         self._build_style()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -118,14 +125,17 @@ class NarrationStudio(tk.Tk):
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill="both", expand=True)
         self.script_tab = ttk.Frame(self.tabs)
+        self.reader_tab = ttk.Frame(self.tabs)
         self.playback_tab = ttk.Frame(self.tabs)
         self.cast_tab = ttk.Frame(self.tabs)
         self.export_tab = ttk.Frame(self.tabs)
         self.tabs.add(self.script_tab, text="Script")
+        self.tabs.add(self.reader_tab, text="Text Reader")
         self.tabs.add(self.playback_tab, text="Comic Reader")
         self.tabs.add(self.cast_tab, text="Cast & Pronunciation")
         self.tabs.add(self.export_tab, text="Generate & Export")
         self._build_script_tab()
+        self._build_reader_tab()
         self._build_playback_tab()
         self._build_cast_tab()
         self._build_export_tab()
@@ -194,6 +204,72 @@ class NarrationStudio(tk.Tk):
 
         self.edit_speaker_combo = fields.grid_slaves(row=1, column=1)[0]
         ttk.Label(editor, text="Tip: double-click any Speaker cell above to reassign it from the cast list.").pack(anchor="w", pady=(5, 0))
+
+    def _build_reader_tab(self):
+        outer = ttk.Panedwindow(self.reader_tab, orient="horizontal")
+        outer.pack(fill="both", expand=True, padx=8, pady=8)
+        text_side = ttk.Frame(outer)
+        voice_side = ttk.Frame(outer, padding=(10, 0, 0, 0))
+        outer.add(text_side, weight=3)
+        outer.add(voice_side, weight=2)
+
+        heading = ttk.Frame(text_side)
+        heading.pack(fill="x", pady=(0, 6))
+        ttk.Label(heading, text="Paste text to read aloud", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.reader_status = tk.StringVar(value="Choose a voice, paste text, then press Read Aloud.")
+        ttk.Label(heading, textvariable=self.reader_status).pack(side="right")
+        text_frame = ttk.Frame(text_side)
+        text_frame.pack(fill="both", expand=True)
+        self.reader_text = tk.Text(text_frame, wrap="word", undo=True, font=("Segoe UI", 11), padx=10, pady=10)
+        reader_scroll = ttk.Scrollbar(text_frame, orient="vertical", command=self.reader_text.yview)
+        self.reader_text.configure(yscrollcommand=reader_scroll.set)
+        self.reader_text.tag_configure("reading", background="#ffe08a", foreground="#111111")
+        self.reader_text.grid(row=0, column=0, sticky="nsew")
+        reader_scroll.grid(row=0, column=1, sticky="ns")
+        text_frame.rowconfigure(0, weight=1)
+        text_frame.columnconfigure(0, weight=1)
+        controls = ttk.Frame(text_side)
+        controls.pack(fill="x", pady=(8, 0))
+        ttk.Button(controls, text="Read Aloud", command=self.start_text_reader).pack(side="left", padx=2)
+        ttk.Button(controls, text="Stop", command=self.stop_text_reader).pack(side="left", padx=2)
+        ttk.Button(controls, text="Clear", command=self.clear_text_reader).pack(side="left", padx=2)
+        ttk.Label(controls, text="Speed").pack(side="left", padx=(16, 4))
+        self.reader_speed = tk.DoubleVar(value=1.0)
+        ttk.Spinbox(controls, from_=0.5, to=2.0, increment=0.05, textvariable=self.reader_speed, width=6).pack(side="left")
+        self.reader_voice = tk.StringVar(value="af_sarah")
+        ttk.Label(controls, text="Selected voice:").pack(side="left", padx=(16, 4))
+        ttk.Label(controls, textvariable=self.reader_voice, font=("Segoe UI", 9, "bold")).pack(side="left")
+
+        ttk.Label(voice_side, text="Choose a Voice", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        ttk.Label(voice_side, text="Select a card. Preview says: “This is what the generated text sounds like.”",
+                  wraplength=430).pack(anchor="w", pady=(2, 7))
+        canvas_frame = ttk.Frame(voice_side)
+        canvas_frame.pack(fill="both", expand=True)
+        voice_canvas = tk.Canvas(canvas_frame, highlightthickness=0)
+        voice_scroll = ttk.Scrollbar(canvas_frame, orient="vertical", command=voice_canvas.yview)
+        voice_canvas.configure(yscrollcommand=voice_scroll.set)
+        voice_canvas.grid(row=0, column=0, sticky="nsew")
+        voice_scroll.grid(row=0, column=1, sticky="ns")
+        canvas_frame.rowconfigure(0, weight=1)
+        canvas_frame.columnconfigure(0, weight=1)
+        cards = ttk.Frame(voice_canvas)
+        cards_window = voice_canvas.create_window((0, 0), window=cards, anchor="nw")
+        cards.bind("<Configure>", lambda _event: voice_canvas.configure(scrollregion=voice_canvas.bbox("all")))
+        voice_canvas.bind("<Configure>", lambda event: voice_canvas.itemconfigure(cards_window, width=event.width))
+        for index, voice in enumerate(KOKORO_VOICES):
+            card = ttk.LabelFrame(cards, text=self.voice_description(voice), padding=6)
+            card.grid(row=index // 2, column=index % 2, sticky="nsew", padx=3, pady=3)
+            ttk.Radiobutton(card, text=voice, variable=self.reader_voice, value=voice).pack(side="left", fill="x", expand=True)
+            ttk.Button(card, text="Preview", command=lambda selected=voice: self.preview_reader_voice(selected)).pack(side="right", padx=(5, 0))
+        cards.columnconfigure(0, weight=1)
+        cards.columnconfigure(1, weight=1)
+
+    @staticmethod
+    def voice_description(voice):
+        accent = {"a": "American", "b": "British"}.get(voice[:1], "")
+        gender = {"f": "female", "m": "male"}.get(voice[1:2], "voice")
+        name = voice.split("_", 1)[-1].replace("_", " ").title()
+        return f"{name} — {accent} {gender}".strip()
 
     def _build_playback_tab(self):
         outer = ttk.Frame(self.playback_tab, padding=8)
@@ -410,6 +486,157 @@ class NarrationStudio(tk.Tk):
         self.pronunciation_text.delete("1.0", "end")
         if self.project:
             self.pronunciation_text.insert("1.0", "\n".join(f"{key} = {value}" for key, value in self.project.data["pronunciations"].items()))
+
+    def reader_cache_file(self, text, voice, speed, prefix="text"):
+        digest = hashlib.sha256(f"{voice}\0{float(speed):.3f}\0{text}".encode("utf-8")).hexdigest()[:24]
+        folder = assistant_root() / "cache" / "narration-studio" / "text-reader"
+        return folder / f"{prefix}_{voice}_{digest}.wav"
+
+    def start_text_reader(self):
+        if self.busy:
+            self.reader_status.set("Please wait for the current operation to finish.")
+            return
+        text = self.reader_text.get("1.0", "end-1c")
+        chunks = text_chunks_with_ranges(text)
+        if not chunks:
+            messagebox.showinfo("Text Reader", "Paste some text first.")
+            return
+        try:
+            speed = float(self.reader_speed.get())
+            if not 0.5 <= speed <= 2.0:
+                raise ValueError
+        except (TypeError, ValueError, tk.TclError):
+            messagebox.showerror("Text Reader", "Speed must be between 0.5 and 2.0.")
+            return
+        voice = self.reader_voice.get() or "af_sarah"
+        self.stop_text_reader(update_status=False)
+        self.stop_playback(update_status=False)
+        self.reader_cancel_event.clear()
+        self.reader_text.configure(state="disabled")
+        self.busy = True
+        self.reader_status.set(f"Preparing {len(chunks)} section(s) with {voice}…")
+
+        def worker():
+            items = []
+            error = None
+            try:
+                for number, (start, end, spoken) in enumerate(chunks, 1):
+                    if self.reader_cancel_event.is_set():
+                        break
+                    destination = self.reader_cache_file(spoken, voice, speed)
+                    if not destination.is_file():
+                        self.tts.synthesize(spoken, destination, voice=voice, speed=speed)
+                    items.append((start, end, destination))
+                    self.after(0, lambda done=number, total=len(chunks):
+                               self.reader_status.set(f"Prepared {done}/{total} section(s)…"))
+            except Exception as exc:
+                error = exc
+            self.after(0, lambda: self._reader_generation_done(error, items))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _reader_generation_done(self, error, items):
+        self.busy = False
+        if error:
+            self.reader_text.configure(state="normal")
+            self.reader_status.set("Text preparation failed")
+            messagebox.showerror("Text Reader", str(error))
+            return
+        if self.reader_cancel_event.is_set() or not items:
+            self.reader_text.configure(state="normal")
+            self.reader_status.set("Reading stopped")
+            return
+        self._reader_items = items
+        self._reader_index = 0
+        self._reader_active = True
+        self._text_reader_step()
+
+    def _text_reader_step(self):
+        if not self._reader_active or self._reader_index >= len(self._reader_items):
+            self._reader_active = False
+            self._reader_after = None
+            self.reader_text.configure(state="normal")
+            self.reader_status.set("Reading finished")
+            return
+        start, end, audio_path = self._reader_items[self._reader_index]
+        try:
+            winsound.PlaySound(str(audio_path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            duration_ms = max(100, round(float(sf.info(str(audio_path)).duration) * 1000))
+        except Exception as exc:
+            self.stop_text_reader(update_status=False)
+            messagebox.showerror("Text Reader", f"Could not play {audio_path.name}:\n{exc}")
+            return
+        self.reader_text.tag_remove("reading", "1.0", "end")
+        first = f"1.0+{start}c"
+        last = f"1.0+{end}c"
+        self.reader_text.tag_add("reading", first, last)
+        self.reader_text.see(first)
+        self.reader_status.set(f"Reading section {self._reader_index + 1}/{len(self._reader_items)}")
+        self._reader_index += 1
+        self._reader_after = self.after(duration_ms + 120, self._text_reader_step)
+
+    def stop_text_reader(self, update_status=True):
+        self.reader_cancel_event.set()
+        self._reader_active = False
+        if self._reader_after is not None:
+            try:
+                self.after_cancel(self._reader_after)
+            except Exception:
+                pass
+            self._reader_after = None
+        try:
+            winsound.PlaySound(None, 0)
+        except RuntimeError:
+            pass
+        self.reader_text.configure(state="normal")
+        if update_status:
+            self.reader_status.set("Reading stopped")
+
+    def clear_text_reader(self):
+        self.stop_text_reader(update_status=False)
+        self.reader_text.delete("1.0", "end")
+        self.reader_text.tag_remove("reading", "1.0", "end")
+        self.reader_status.set("Paste text to begin.")
+
+    def preview_reader_voice(self, voice):
+        if self.busy:
+            self.reader_status.set("Please wait for the current operation to finish.")
+            return
+        sample = "This is what the generated text sounds like."
+        self.reader_voice.set(voice)
+        self.stop_text_reader(update_status=False)
+        self.stop_playback(update_status=False)
+        destination = self.reader_cache_file(sample, voice, 1.0, prefix="preview")
+        if destination.is_file():
+            self._play_voice_preview(voice, destination)
+            return
+        self.busy = True
+        self.reader_status.set(f"Generating {voice} preview…")
+
+        def worker():
+            error = None
+            try:
+                self.tts.synthesize(sample, destination, voice=voice, speed=1.0)
+            except Exception as exc:
+                error = exc
+            self.after(0, lambda: self._voice_preview_done(voice, destination, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _voice_preview_done(self, voice, destination, error):
+        self.busy = False
+        if error:
+            self.reader_status.set("Voice preview failed")
+            messagebox.showerror("Voice Preview", str(error))
+            return
+        self._play_voice_preview(voice, destination)
+
+    def _play_voice_preview(self, voice, destination):
+        try:
+            winsound.PlaySound(str(destination), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            self.reader_status.set(f"Playing {voice} preview")
+        except Exception as exc:
+            messagebox.showerror("Voice Preview", str(exc))
 
     def comic_sources(self):
         if not self.project:
@@ -729,6 +956,9 @@ class NarrationStudio(tk.Tk):
 
     def stop_work(self):
         self.cancel_event.set()
+        self.reader_cancel_event.set()
+        self.stop_text_reader(update_status=False)
+        self.stop_playback(update_status=False)
         self.status_var.set("Stopping after the current operation…")
 
     def combine_part_dialog(self):
@@ -795,6 +1025,8 @@ class NarrationStudio(tk.Tk):
         if self.project:
             self.project.save()
         self.cancel_event.set()
+        self.reader_cancel_event.set()
+        self.stop_text_reader(update_status=False)
         self.stop_playback(update_status=False)
         self.destroy()
 
