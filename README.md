@@ -80,6 +80,23 @@ interrupted Ollama model downloads resume.
 - Named conversations with automatic history, resume, rename and JSON export.
 - An MCP 2.x client for local stdio/Streamable HTTP tools, per-action approval,
   and a bundled Unity Python bridge.
+- A Mellish Local AI Bridge MCP server with 13 tools for local-model second
+  opinions, bounded code audits, background jobs, VRAM unloading, WAV voice
+  lines and Unity-friendly dialogue packs. Narration Studio adds another 11
+  project-oriented voice tools.
+
+## Connecting the local tools to Codex
+
+After installing the Local AI Assistant, run **Register AI Bridge with
+Codex.bat** from the installation folder. It uses the supported `codex mcp add`
+command to register the contained Python executable and MCP server. Start a new
+Codex task/session afterward; an already-running task cannot gain newly added
+tools.
+
+The bridge reads files only below roots listed in `config\ai-bridge.json`. The
+Mellish installation folder is the sole default. Add a Unity, Blender or other
+project folder there before requesting a file audit. Generated audio, dialogue
+manifests and persistent job records are written beneath `mcp-output`.
 
 ## Important expectations
 

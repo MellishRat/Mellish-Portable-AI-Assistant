@@ -1,5 +1,26 @@
 # MCP application setup
 
+## Mellish Local AI Bridge
+
+Installing the Local AI Assistant also installs `apps\ai-bridge`. Run
+`Register AI Bridge with Codex.bat` from the installation root to register two
+local stdio servers when available:
+
+- `mellish-ai`: 13 tools for installed-model status, second opinions, bounded
+  file/code audits, persistent background jobs, VRAM unloading, individual WAV
+  generation and Unity-ready dialogue packs.
+- `mellish-narration`: Narration Studio's 11 project, cast, generation, combine
+  and export tools. This entry is added only when Narration Studio is installed.
+
+The registration uses the contained `runtime\python\python.exe`; it does not use
+system Python or PATH. Start a new Codex task/session after registration.
+
+`audit_local_files` can read only paths below `allowed_roots` in
+`config\ai-bridge.json`. The installation root is the only default. Add project
+roots deliberately and do not add broad locations such as an entire system
+drive. Direct text supplied to `review_code_text` does not require path access.
+Generated artifacts and job records remain beneath `mcp-output`.
+
 Mellish 0.3 includes an MCP client. It discovers tools from enabled MCP
 servers, gives their schemas to Ollama, and returns tool results to the
 conversation. **Every proposed tool call requires separate confirmation.**

@@ -89,6 +89,14 @@ not edit files or run the project. Rebuild the index after major project changes
 
 ## MCP and controlling other applications
 
+The installed **Mellish Local AI Bridge** also lets Codex or another compatible
+MCP client request a second opinion from the contained models, run bounded code
+audits and background prompts, unload models from VRAM, and generate individual
+voice lines or Unity-ready dialogue packs. Run **Register AI Bridge with
+Codex.bat** from the installation folder, then start a new Codex task/session.
+File audits are restricted by `config\ai-bridge.json`; add only the project
+folders you intend to expose.
+
 The application includes an MCP client for `stdio` and Streamable HTTP servers.
 Open **MCP Tools**, enable tool use, configure the required bridge, and press
 **Refresh Tools**. Discovered tool schemas are supplied to Ollama and every

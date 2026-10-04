@@ -421,6 +421,9 @@ function Copy-AppPayload {
     if ($DyslexicAid) {
         Copy-Item -LiteralPath (Join-Path $PayloadRoot 'apps\dyslexic-aid') -Destination $targetApps -Recurse -Force
     }
+    if ($LocalAssistant) {
+        Copy-Item -LiteralPath (Join-Path $PayloadRoot 'apps\ai-bridge') -Destination $targetApps -Recurse -Force
+    }
     $targetInstaller = Join-Path $Root 'installer'
     New-Item -ItemType Directory -Force -Path $targetInstaller | Out-Null
     if ([IO.Path]::GetFullPath($ScriptRoot).TrimEnd('\') -ne [IO.Path]::GetFullPath($targetInstaller).TrimEnd('\')) {
@@ -497,8 +500,10 @@ pause
     }
     $narrationLauncher = "@echo off`r`ncall `"%~dp0apps\narration-studio\Start Narration Studio.cmd`"`r`n"
     $dyslexicLauncher = "@echo off`r`ncall `"%~dp0apps\dyslexic-aid\Start Dyslexic Aid.cmd`"`r`n"
+    $bridgeLauncher = "@echo off`r`ncall `"%~dp0apps\ai-bridge\Register with Codex.cmd`"`r`n"
     if ($NarrationStudio) { Set-Content -LiteralPath (Join-Path $Root 'Start Narration Studio.bat') -Value $narrationLauncher -Encoding ASCII }
     if ($DyslexicAid) { Set-Content -LiteralPath (Join-Path $Root 'Start Dyslexic Aid.bat') -Value $dyslexicLauncher -Encoding ASCII }
+    if ($LocalAssistant) { Set-Content -LiteralPath (Join-Path $Root 'Register AI Bridge with Codex.bat') -Value $bridgeLauncher -Encoding ASCII }
     Set-Content -LiteralPath (Join-Path $Root 'Repair or Add Models.bat') -Value $repair -Encoding ASCII
     Set-Content -LiteralPath (Join-Path $Root 'Run Diagnostics.bat') -Value $diagnostics -Encoding ASCII
 }
@@ -527,6 +532,11 @@ function Write-InstallConfiguration {
             theme = 'dark'
             tts_enabled = $false
         } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding UTF8
+    }
+    $bridgeSettings = Join-Path $configDir 'ai-bridge.json'
+    if ($LocalAssistant -and -not (Test-Path -LiteralPath $bridgeSettings)) {
+        @{ allowed_roots = @($Root); max_files_per_audit = 20; max_audit_bytes = 300000; default_model = '' } |
+            ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $bridgeSettings -Encoding UTF8
     }
     $previousManifest = $null
     $manifestPath = Join-Path $configDir 'install-manifest.json'
@@ -624,6 +634,12 @@ function Invoke-Installation {
     $python = Install-PythonRuntime $Target $downloads
     if ($LocalAssistant -or $NarrationStudio) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-core.txt')) 'Installing core Python packages...' $Target
+    }
+    if ($LocalAssistant) {
+        Invoke-ProcessChecked $python @('-m', 'py_compile', (Join-Path $Target 'apps\ai-bridge\run_mcp.py'), (Join-Path $Target 'apps\ai-bridge\mellish_ai_bridge\server.py'), (Join-Path $Target 'apps\ai-bridge\mellish_ai_bridge\jobs.py')) 'Checking Mellish AI Bridge...' $Target
+        Invoke-ProcessChecked $python @((Join-Path $Target 'apps\ai-bridge\run_mcp.py'), '--self-test') 'Testing Mellish AI Bridge...' $Target
+        $mcpConfig = Join-Path $Target 'config\mcp_servers.json'
+        Invoke-ProcessChecked $python @((Join-Path $Target 'apps\ai-bridge\mellish_ai_bridge\merge_mcp.py'), '--config', $mcpConfig) 'Registering Mellish AI Bridge with the local assistant...' $Target
     }
     if ($Voice -and $LocalAssistant) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-voice.txt')) 'Installing local voice packages...' $Target

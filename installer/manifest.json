@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "appVersion": "0.5.1",
+  "appVersion": "0.6.0",
   "portablePort": 11437,
   "python": {
     "version": "3.11.9",
