@@ -12,6 +12,8 @@
 - [ ] Confirm no Python PATH, launcher, uninstall entry or file association is added.
 - [ ] Confirm the selected folder's Python can import pip and tkinter.
 - [ ] Confirm core and optional voice requirements install with `python.exe -m pip`.
+- [ ] Confirm the optional Narration Studio checkbox forces voice support, installs document parsers, starts from `apps\narration-studio`, and registers exactly 11 MCP tools.
+- [ ] Confirm Narration Studio preserves unrelated MCP entries and writes projects/audio only under the selected assistant or user-selected project folder.
 - [ ] Confirm the MCP client discovers and calls the mock stdio server.
 - [ ] Confirm Unity tools appear only while its Unity package/server is running.
 - [ ] Confirm every MCP call asks for approval and declined calls do not execute.

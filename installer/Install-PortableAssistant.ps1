@@ -5,6 +5,7 @@ param(
     [string]$InstallPath,
     [string[]]$ModelIds,
     [switch]$WithVoice,
+    [switch]$WithNarrationStudio,
     [switch]$NoShortcuts,
     [switch]$GuiSmokeTest,
     [switch]$RuntimeSmokeTest
@@ -455,7 +456,7 @@ pause
 }
 
 function Write-InstallConfiguration {
-    param([string]$Root, [object[]]$SelectedModels, [bool]$Voice, $Hardware)
+    param([string]$Root, [object[]]$SelectedModels, [bool]$Voice, [bool]$NarrationStudio, $Hardware)
     $chatModels = @($SelectedModels | Where-Object kind -eq 'chat')
     $preferred = @('general', 'small-uncensored', 'bonsai-small', 'creative', 'coder')
     $default = $null
@@ -484,6 +485,7 @@ function Write-InstallConfiguration {
         appVersion = $Manifest.appVersion
         portablePort = $Manifest.portablePort
         voiceInstalled = $Voice
+        narrationStudioInstalled = $NarrationStudio
         hardware = $Hardware
         models = @($SelectedModels | Select-Object id, name, ollama, sizeGB, kind, uncensoredClaim)
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $configDir 'install-manifest.json') -Encoding UTF8
@@ -533,30 +535,41 @@ function Add-Shortcuts {
 }
 
 function Invoke-Installation {
-    param([string]$Target, [object[]]$SelectedModels, [bool]$Voice, [bool]$Shortcuts, $Hardware)
+    param([string]$Target, [object[]]$SelectedModels, [bool]$Voice, [bool]$NarrationStudio, [bool]$Shortcuts, $Hardware)
     $Target = Test-InstallerInputs $Target $SelectedModels
+    if ($NarrationStudio) { $Voice = $true }
     if (-not $DryRun) {
         Save-InstallPath $Target
         Set-PortableProcessEnvironment $Target
     }
-    $requiredGB = 3.5 + (($SelectedModels | Measure-Object sizeGB -Sum).Sum) + $(if ($Voice) { 1.2 } else { 0.2 })
+    $requiredGB = 3.5 + (($SelectedModels | Measure-Object sizeGB -Sum).Sum) + $(if ($Voice) { 1.2 } else { 0.2 }) + $(if ($NarrationStudio) { 0.1 } else { 0 })
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($Target))
     if (($drive.AvailableFreeSpace / 1GB) -lt ($requiredGB + 3)) {
         throw ("Not enough free space. Selected components need about {0:N1} GB plus working space; {1:N1} GB is free." -f $requiredGB, ($drive.AvailableFreeSpace / 1GB))
     }
     if ($DryRun) {
-        [pscustomobject]@{ InstallPath = $Target; RequiredGB = [Math]::Round($requiredGB, 1); Hardware = $Hardware; Models = $SelectedModels; Voice = $Voice } | ConvertTo-Json -Depth 6
+        [pscustomobject]@{ InstallPath = $Target; RequiredGB = [Math]::Round($requiredGB, 1); Hardware = $Hardware; Models = $SelectedModels; Voice = $Voice; NarrationStudio = $NarrationStudio } | ConvertTo-Json -Depth 6
         return
     }
     $downloads = Join-Path $Target 'downloads'
     New-Item -ItemType Directory -Force -Path $downloads | Out-Null
     Copy-AppPayload $Target
+    $narrationPath = Join-Path $Target 'apps\narration-studio'
+    if (-not $NarrationStudio -and (Test-Path -LiteralPath $narrationPath)) {
+        Remove-Item -LiteralPath $narrationPath -Recurse -Force
+    }
     Write-LaunchFiles $Target ([int]$Manifest.portablePort)
     $python = Install-PythonRuntime $Target $downloads
     Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-core.txt')) 'Installing core Python packages...' $Target
     if ($Voice) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-voice.txt')) 'Installing local voice packages...' $Target
         Invoke-ProcessChecked $python @((Join-Path $Target 'tools\bootstrap_voice_models.py')) 'Downloading local speech models...' $Target
+    }
+    if ($NarrationStudio) {
+        Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'apps\narration-studio\requirements-documents.txt')) 'Installing Narration Studio document importers...' $Target
+        Invoke-ProcessChecked $python @('-m', 'py_compile', (Join-Path $Target 'apps\narration-studio\run_app.py'), (Join-Path $Target 'apps\narration-studio\narration_studio\app.py'), (Join-Path $Target 'apps\narration-studio\narration_studio\mcp_server.py')) 'Checking Narration Studio...' $Target
+        $mcpConfig = Join-Path $Target 'config\mcp_servers.json'
+        Invoke-ProcessChecked $python @((Join-Path $Target 'apps\narration-studio\narration_studio\merge_mcp.py'), '--config', $mcpConfig) 'Registering Narration Studio MCP tools...' $Target
     }
     $ollama = Install-OllamaRuntime $Target $downloads
     $server = Start-PortableOllama $Target $ollama ([int]$Manifest.portablePort)
@@ -573,7 +586,7 @@ function Invoke-Installation {
             Wait-Process -Id $server.Id -Timeout 10 -ErrorAction SilentlyContinue
         }
     }
-    Write-InstallConfiguration $Target $SelectedModels $Voice $Hardware
+    Write-InstallConfiguration $Target $SelectedModels $Voice $NarrationStudio $Hardware
     Add-Shortcuts $Target $Shortcuts
     Remove-Item -LiteralPath $downloads -Recurse -Force -ErrorAction SilentlyContinue
     Set-InstallerStatus 'Installation complete.' 100
@@ -602,7 +615,7 @@ if ($NoGui) {
     }
     if (-not $ModelIds -or $ModelIds.Count -eq 0) { $ModelIds = $recommendedIds }
     $selected = @($Manifest.models | Where-Object { $ModelIds -contains $_.id })
-    Invoke-Installation $InstallPath $selected ([bool]$WithVoice) (-not $NoShortcuts) $hardware
+    Invoke-Installation $InstallPath $selected ([bool]$WithVoice) ([bool]$WithNarrationStudio) (-not $NoShortcuts) $hardware
     exit 0
 }
 
@@ -709,28 +722,36 @@ $voiceCheck.Checked = ($hardware.RamGB -ge 16)
 $voiceCheck.Location = New-Object Drawing.Point(365, 475)
 $form.Controls.Add($voiceCheck)
 
+$narrationCheck = New-Object System.Windows.Forms.CheckBox
+$narrationCheck.Text = 'Install Narration Studio (books, comics and Unity/VRChat voice lines)'
+$narrationCheck.AutoSize = $true
+$narrationCheck.Checked = ($hardware.RamGB -ge 16)
+$narrationCheck.Location = New-Object Drawing.Point(365, 502)
+$narrationCheck.Add_CheckedChanged({ if ($narrationCheck.Checked) { $voiceCheck.Checked = $true } })
+$form.Controls.Add($narrationCheck)
+
 $shortcutCheck = New-Object System.Windows.Forms.CheckBox
 $shortcutCheck.Text = 'Create Desktop and Start Menu shortcuts'
 $shortcutCheck.AutoSize = $true
 $shortcutCheck.Checked = $true
-$shortcutCheck.Location = New-Object Drawing.Point(20, 510)
+$shortcutCheck.Location = New-Object Drawing.Point(20, 525)
 $form.Controls.Add($shortcutCheck)
 
 $notice = New-Object System.Windows.Forms.Label
 $notice.Text = 'Models labelled unrestricted/abliterated use community publisher claims, not a guarantee. The installer downloads model weights from their original hosts and keeps all runtime files, models, caches, chats and settings inside the selected folder.'
-$notice.Location = New-Object Drawing.Point(20, 540)
+$notice.Location = New-Object Drawing.Point(20, 555)
 $notice.Size = New-Object Drawing.Size(800, 43)
 $notice.Anchor = 'Top,Left,Right'
 $form.Controls.Add($notice)
 
 $script:StatusLabel = New-Object System.Windows.Forms.Label
 $script:StatusLabel.Text = 'Ready to install.'
-$script:StatusLabel.Location = New-Object Drawing.Point(20, 590)
+$script:StatusLabel.Location = New-Object Drawing.Point(20, 605)
 $script:StatusLabel.Size = New-Object Drawing.Size(800, 20)
 $form.Controls.Add($script:StatusLabel)
 
 $script:ProgressBar = New-Object System.Windows.Forms.ProgressBar
-$script:ProgressBar.Location = New-Object Drawing.Point(20, 613)
+$script:ProgressBar.Location = New-Object Drawing.Point(20, 628)
 $script:ProgressBar.Size = New-Object Drawing.Size(800, 18)
 $script:ProgressBar.Anchor = 'Top,Left,Right'
 $form.Controls.Add($script:ProgressBar)
@@ -739,7 +760,7 @@ $script:LogControl = New-Object System.Windows.Forms.TextBox
 $script:LogControl.ReadOnly = $true
 $script:LogControl.Multiline = $true
 $script:LogControl.ScrollBars = 'Vertical'
-$script:LogControl.Location = New-Object Drawing.Point(20, 640)
+$script:LogControl.Location = New-Object Drawing.Point(20, 655)
 $script:LogControl.Size = New-Object Drawing.Size(680, 105)
 $script:LogControl.Anchor = 'Top,Bottom,Left,Right'
 $form.Controls.Add($script:LogControl)
@@ -747,14 +768,14 @@ $form.Controls.Add($script:LogControl)
 $installButton = New-Object System.Windows.Forms.Button
 $installButton.Text = 'Install'
 $installButton.Font = New-Object Drawing.Font('Segoe UI', 10, [Drawing.FontStyle]::Bold)
-$installButton.Location = New-Object Drawing.Point(715, 640)
+$installButton.Location = New-Object Drawing.Point(715, 655)
 $installButton.Size = New-Object Drawing.Size(105, 48)
 $installButton.Anchor = 'Top,Right'
 $form.Controls.Add($installButton)
 
 $closeButton = New-Object System.Windows.Forms.Button
 $closeButton.Text = 'Close'
-$closeButton.Location = New-Object Drawing.Point(715, 697)
+$closeButton.Location = New-Object Drawing.Point(715, 712)
 $closeButton.Size = New-Object Drawing.Size(105, 35)
 $closeButton.Anchor = 'Top,Right'
 $closeButton.Add_Click({ $form.Close() })
@@ -769,7 +790,7 @@ $installButton.Add_Click({
         $installButton.Enabled = $false
         $browse.Enabled = $false
         $modelList.Enabled = $false
-        Invoke-Installation $folderText.Text $selected $voiceCheck.Checked $shortcutCheck.Checked $hardware
+        Invoke-Installation $folderText.Text $selected $voiceCheck.Checked $narrationCheck.Checked $shortcutCheck.Checked $hardware
         [System.Windows.Forms.MessageBox]::Show("Installation completed successfully.`r`n`r`n$($folderText.Text)", 'Mellish Portable AI Assistant', 'OK', 'Information') | Out-Null
     } catch {
         Add-Log "ERROR: $($_.Exception.Message)"

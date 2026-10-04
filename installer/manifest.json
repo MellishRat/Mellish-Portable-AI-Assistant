@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "appVersion": "0.3.0",
+  "appVersion": "0.4.0",
   "portablePort": 11437,
   "python": {
     "version": "3.11.9",
@@ -18,6 +18,15 @@
     "checksumUrl": "https://github.com/ollama/ollama/releases/download/v0.34.4/sha256sum.txt",
     "archiveName": "ollama-windows-amd64.zip"
   },
+  "programs": [
+    {
+      "id": "narration-studio",
+      "name": "Mellish Narration Studio",
+      "optional": true,
+      "requiresVoice": true,
+      "description": "Books, comics, accessible narration and Unity/VRChat voice-line production with 11 MCP tools."
+    }
+  ],
   "models": [
     {
       "id": "small-uncensored",

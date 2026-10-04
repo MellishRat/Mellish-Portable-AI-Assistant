@@ -1,0 +1,22 @@
+THIRD-PARTY COMPONENTS (NOT BUNDLED IN THIS ADD-ON ZIP)
+
+Kokoro ONNX / Kokoro model
+  Project: https://github.com/thewh1teagle/kokoro-onnx
+  The model and voice data remain in the Mellish Portable AI Assistant voice
+  folder. Review the upstream repository and model card for current licensing.
+
+Ollama
+  Project: https://github.com/ollama/ollama
+  Narration Studio talks to the separately installed local Ollama service.
+
+Model Context Protocol Python SDK
+  Project: https://github.com/modelcontextprotocol/python-sdk
+  License: MIT at the time this package was prepared.
+
+NumPy, SoundFile, Pillow, pypdf, python-docx, EbookLib, Beautiful Soup
+  Installed into the contained assistant runtime by the installer. Each remains
+  under its own upstream license and is not copied into this source ZIP.
+
+Qwen, GLM-OCR and other local models
+  Stored and managed by the existing Mellish Portable AI Assistant/Ollama
+  installation. This package does not redistribute their weights.

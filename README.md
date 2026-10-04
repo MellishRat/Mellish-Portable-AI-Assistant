@@ -35,6 +35,10 @@ dependencies or add another model. Interrupted Ollama model downloads resume.
   library included.
 - A pinned standalone Ollama runtime whose official SHA-256 checksum is verified.
 - Optional faster-whisper speech recognition and Kokoro text-to-speech.
+- Optional Mellish Narration Studio for accessible books/comics, editable
+  multi-speaker narration, audiobook parts, and Unity/VRChat voice-line exports.
+- Eleven Narration Studio MCP tools for project inspection, speaker correction,
+  cast voices, generation, part combination and export.
 - Dedicated loopback port `11437`, avoiding conflicts with a normal Ollama app.
 - Portable launch, console, repair and diagnostics batch files.
 - Optional Desktop and Start Menu shortcuts.
@@ -96,7 +100,7 @@ are excluded by `.gitignore` and must never be committed.
 
 Run `build_release.ps1` to create the small release ZIP and checksum under
 `dist/`. The script audits the staging list so runtime state cannot enter the
-archive. Tagging a version such as `v0.3.0` runs the GitHub release workflow.
+archive. Tagging a version such as `v0.4.0` runs the GitHub release workflow.
 
 Target applications still need their own MCP add-on. See
 [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for Unity, Blender and GIMP setup,

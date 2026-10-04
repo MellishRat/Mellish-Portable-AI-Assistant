@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version = '0.3.0')
+param([string]$Version = '0.4.0')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -23,6 +23,24 @@ $required = @(
     'payload\tools\__init__.py',
     'payload\tools\chat_store.py',
     'payload\tools\mcp_client.py',
+    'payload\apps\narration-studio\run_app.py',
+    'payload\apps\narration-studio\run_mcp.py',
+    'payload\apps\narration-studio\requirements-documents.txt',
+    'payload\apps\narration-studio\Start Narration Studio.cmd',
+    'payload\apps\narration-studio\Start Narration Studio (Console).cmd',
+    'payload\apps\narration-studio\README.txt',
+    'payload\apps\narration-studio\LICENSE',
+    'payload\apps\narration-studio\THIRD_PARTY_NOTICES.txt',
+    'payload\apps\narration-studio\narration_studio\__init__.py',
+    'payload\apps\narration-studio\narration_studio\analyzer.py',
+    'payload\apps\narration-studio\narration_studio\app.py',
+    'payload\apps\narration-studio\narration_studio\exporters.py',
+    'payload\apps\narration-studio\narration_studio\importers.py',
+    'payload\apps\narration-studio\narration_studio\mcp_server.py',
+    'payload\apps\narration-studio\narration_studio\merge_mcp.py',
+    'payload\apps\narration-studio\narration_studio\paths.py',
+    'payload\apps\narration-studio\narration_studio\project.py',
+    'payload\apps\narration-studio\narration_studio\tts.py',
     'docs\MODELS.md',
     'docs\PORTABILITY_TEST_MATRIX.md',
     'docs\USER_GUIDE.md',
