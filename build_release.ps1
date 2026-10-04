@@ -5,7 +5,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dist = Join-Path $root 'dist'
-$staging = Join-Path $dist 'Mellish-Portable-AI-Assistant-Bootstrap'
+$scratch = Join-Path ([IO.Path]::GetTempPath()) ('Mellish-Portable-AI-Assistant-' + [guid]::NewGuid().ToString('N'))
+$staging = Join-Path $scratch 'Mellish-Portable-AI-Assistant-Bootstrap'
 $archive = Join-Path $dist 'Mellish-Portable-AI-Assistant-Bootstrap.zip'
 
 $required = @(
@@ -68,9 +69,8 @@ foreach ($relative in $required) {
     }
 }
 
-if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
-New-Item -ItemType Directory -Force -Path $staging | Out-Null
+New-Item -ItemType Directory -Force -Path $dist, $staging | Out-Null
 
 foreach ($relative in $required) {
     $source = Join-Path $root $relative
@@ -88,6 +88,11 @@ foreach ($pattern in $forbidden) {
 Compress-Archive -LiteralPath $staging -DestinationPath $archive -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Value "$hash  $(Split-Path -Leaf $archive)" -Encoding ASCII
+if (Test-Path -LiteralPath $scratch) {
+    $resolvedScratch = [IO.Path]::GetFullPath($scratch)
+    if ((Split-Path -Leaf $resolvedScratch) -notlike 'Mellish-Portable-AI-Assistant-*') { throw "Unsafe cleanup path: $resolvedScratch" }
+    Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
+}
 Write-Output "Built version $Version"
 Write-Output $archive
 Write-Output "SHA256 $hash"

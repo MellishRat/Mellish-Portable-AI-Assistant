@@ -53,6 +53,10 @@ if (-not $dyslexicDryRun.DyslexicAid -or $dyslexicDryRun.LocalAssistant -or -not
 $dyslexicPayload = Join-Path $root 'payload\apps\dyslexic-aid\run_app.py'
 if (-not (Test-Path -LiteralPath $dyslexicPayload)) { throw 'Dyslexic Aid payload is missing.' }
 if (-not $source.Contains("'--tts-only'")) { throw 'Dyslexic Aid-only installation is not using the focused TTS dependency path.' }
+$narrationDryRun = & $powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer -NoGui -DryRun -InstallPath 'C:\Mellish Narration Only Test' -WithoutLocalAssistant -WithNarrationStudio -ModelIds general | ConvertFrom-Json
+if (-not $narrationDryRun.NarrationStudio -or $narrationDryRun.LocalAssistant -or -not $narrationDryRun.Voice) {
+    throw 'Narration Studio-only dry run did not select the expected program and voice components.'
+}
 
 if ($IncludeRuntime) {
     & $powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer -RuntimeSmokeTest -InstallPath $RuntimeTestRoot

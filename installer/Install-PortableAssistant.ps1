@@ -625,9 +625,13 @@ function Invoke-Installation {
     if ($LocalAssistant -or $NarrationStudio) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-core.txt')) 'Installing core Python packages...' $Target
     }
-    if ($Voice -and ($LocalAssistant -or $NarrationStudio)) {
+    if ($Voice -and $LocalAssistant) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'requirements-voice.txt')) 'Installing local voice packages...' $Target
         Invoke-ProcessChecked $python @((Join-Path $Target 'tools\bootstrap_voice_models.py')) 'Downloading local speech models...' $Target
+    }
+    if ($Voice -and -not $LocalAssistant -and $NarrationStudio) {
+        Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'payload\apps\dyslexic-aid\requirements.txt')) 'Installing narration voice packages...' $Target
+        Invoke-ProcessChecked $python @((Join-Path $Target 'tools\bootstrap_voice_models.py'), '--tts-only') 'Downloading Kokoro voice files...' $Target
     }
     if ($NarrationStudio) {
         Invoke-ProcessChecked $python @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '-r', (Join-Path $Target 'apps\narration-studio\requirements-documents.txt')) 'Installing Narration Studio document importers...' $Target
@@ -837,20 +841,26 @@ function Set-ModelCheckedById {
         if ($Ids -contains $Manifest.models[$i].id) { $modelList.SetItemChecked($i, $true) }
     }
 }
+$refreshProgramModels = {
+    for ($i = 0; $i -lt $Manifest.models.Count; $i++) { $modelList.SetItemChecked($i, $false) }
+    if ($assistantCheck.Checked) { Set-ModelCheckedById $recommendedIds }
+    if ($narrationCheck.Checked) { Set-ModelCheckedById @('general','vision','ocr') }
+    if ($dyslexicCheck.Checked) { Set-ModelCheckedById @('ocr') }
+}
 $narrationCheck.Add_CheckedChanged({
     if ($narrationCheck.Checked) {
         $voiceCheck.Checked = $true
-        Set-ModelCheckedById @('general','vision','ocr')
     }
+    & $refreshProgramModels
 })
 $dyslexicCheck.Add_CheckedChanged({
     if ($dyslexicCheck.Checked) {
         $voiceCheck.Checked = $true
-        Set-ModelCheckedById @('ocr')
     }
+    & $refreshProgramModels
 })
 $assistantCheck.Add_CheckedChanged({
-    if ($assistantCheck.Checked) { Set-ModelCheckedById $recommendedIds }
+    & $refreshProgramModels
 })
 if ($narrationCheck.Checked) { Set-ModelCheckedById @('general','vision','ocr'); $voiceCheck.Checked = $true }
 if ($dyslexicCheck.Checked) { Set-ModelCheckedById @('ocr'); $voiceCheck.Checked = $true }
