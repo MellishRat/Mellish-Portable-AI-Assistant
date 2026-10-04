@@ -1,11 +1,35 @@
 # Mellish Portable AI Assistant
 
-A small Windows bootstrap installer for a private, local AI assistant. The ZIP
-contains no model weights and no personal data. On first run it detects the PC,
-lets the user choose an installation folder and model set, and downloads every
-runtime, model and optional voice component into that folder.
+A friendly Windows bootstrap for running private AI tools on your own computer.
+Choose the programs you want, choose a folder, and the bootstrap downloads the
+contained Python runtime, Ollama, models and voice components for you. It does
+not require an existing Python installation and does not add Python to PATH.
 
-## For friends who just want to install it
+> **Current platform:** Windows 10/11 x64. An NVIDIA GPU with 8–12 GB VRAM is
+> recommended for the larger models, although small models and CPU operation
+> are available.
+
+## Download
+
+Download **Mellish-Portable-AI-Assistant-Bootstrap.zip** from the
+[latest GitHub release](https://github.com/MellishRat/Mellish-Portable-AI-Assistant/releases/latest).
+The ZIP is deliberately small: models and runtimes are downloaded only after
+you choose them in setup.
+
+## Which program should I choose?
+
+| Program | Best for | Focused installation includes |
+| --- | --- | --- |
+| **Local AI Assistant** | General chat, writing, coding, image understanding, saved conversations and MCP tools | Selected chat/vision/coding models; optional microphone transcription and spoken replies |
+| **Narration Studio** | Audiobooks, comics, multiple characters, voice-line production and Unity/VRChat dialogue | Text/vision/OCR models, document importers, Kokoro voices and narration MCP tools |
+| **Dyslexic Aid** | Reading pasted text or text captured from the screen | GLM-OCR, Kokoro voices, sentence highlighting and only its required packages |
+
+Install one program or any combination. Changing a program checkbox
+automatically recalculates its required models. Shared components are installed
+once and reused. Leaving an existing program unticked during a later repair does
+**not** uninstall it or delete its data.
+
+## Quick installation
 
 1. Download the latest `Mellish-Portable-AI-Assistant-Bootstrap.zip` from the
    repository's **Releases** page.
@@ -16,6 +40,10 @@ runtime, model and optional voice component into that folder.
    focused Dyslexic Aid text/screenshot reader.
 6. Keep the recommended models or change the selection, then click **Install**.
 7. Launch with the generated program batch file or Desktop shortcut.
+
+Windows may show a SmartScreen warning because the bootstrap is not
+code-signed. Use **More info → Run anyway** only if the download came from this
+repository and its SHA-256 matches the value attached to the release.
 
 Open **USER GUIDE.html** for a visual model-selection guide, model-routing
 explanations, voice and Project Knowledge instructions, and the current MCP/tool
@@ -60,6 +88,12 @@ interrupted Ollama model downloads resume.
   NVIDIA acceleration. AMD/CPU operation depends on Ollama's supported backend.
 - The bootstrap itself is small, but selected downloads range from roughly 3 GB
   for a minimal installation to more than 40 GB for every option.
+- Installation time depends heavily on the selected models and internet speed.
+- Image analysis and OCR are supported. Local image generation is intentionally
+  not bundled because its storage and VRAM cost did not justify the output
+  quality for this package.
+- MCP support requires the matching Blender, GIMP or Unity connector to be
+  installed and running in the target application.
 - `uncensored`, `unrestricted`, `abliterated` and `HERETIC` are claims made by
   community model publishers. They reduce refusals but are not guarantees about
   every response or an endorsement of model output.
@@ -103,11 +137,32 @@ binds to `127.0.0.1`; it is not exposed to the local network by default.
 Personal chats, settings, recordings, caches, model weights and API credentials
 are excluded by `.gitignore` and must never be committed.
 
+## Repairing or adding features later
+
+Run **Repair or Add Models.bat** from the selected installation folder. Repair
+remembers that exact folder and reuses valid Python, packages, Ollama model
+layers, Kokoro voices, Whisper files and Hugging Face caches. It downloads or
+repairs only components that are missing or selected for addition.
+
+If the whole folder is copied to another compatible PC, run the repair tool to
+redetect the GPU and recreate shortcuts. NVIDIA drivers, microphone permission
+and working audio devices remain machine-specific.
+
+## Troubleshooting
+
+- Fully extract the bootstrap ZIP before running it.
+- Use a folder such as `C:\LocalAI` or `D:\Mellish AI`, rather than a drive root.
+- Leave enough free space for both model downloads and temporary extraction.
+- Run **Run Diagnostics.bat** inside the installation folder when reporting a
+  problem.
+- The release ZIP contains no models, conversations, credentials or personal
+  data, so the same bootstrap ZIP can be passed to another person.
+
 ## Maintainer workflow
 
 Run `build_release.ps1` to create the small release ZIP and checksum under
 `dist/`. The script audits the staging list so runtime state cannot enter the
-archive. Tagging a version such as `v0.4.0` runs the GitHub release workflow.
+archive. Tagging a version such as `v0.5.1` runs the GitHub release workflow.
 
 Target applications still need their own MCP add-on. See
 [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for Unity, Blender and GIMP setup,
@@ -119,5 +174,7 @@ to install and isolate-check both core and voice requirements. The remaining
 clean-machine cases are listed in
 [docs/PORTABILITY_TEST_MATRIX.md](docs/PORTABILITY_TEST_MATRIX.md).
 
-Before publishing publicly, review [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
-and choose a source-code licence. No model licence is transferred by this repo.
+Before publishing a release, review
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md). No model licence is transferred by
+this repository. Unless a source file states otherwise, no open-source licence
+is currently granted for this repository's original code.
