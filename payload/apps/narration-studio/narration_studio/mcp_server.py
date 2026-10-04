@@ -16,7 +16,7 @@ mcp = MCPServer(
     name="mellish-narration-studio",
     title="Mellish Narration Studio",
     description="Create, review, voice and export local narration projects.",
-    version="0.1.0",
+    version="0.1.1",
 )
 tts = TTSEngine()
 

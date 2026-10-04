@@ -1,4 +1,7 @@
 numpy>=1.26,<3
 Pillow>=10,<13
 mcp>=2,<3
+pydantic>=2.11,<3
+jsonschema>=4.20,<5
+typing-inspection>=0.4,<1
 unity-mcp-server==1.0.11
